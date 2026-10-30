@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anon-local"
+version = "0.1.0"
+description = "Lokaler PII-Anonymisierer (DE+EN), einweg, usermode"
+requires-python = ">=3.12"
+dependencies = [
+    "gliner>=0.2.13",
+    "torch>=2.0",
+    "transformers>=4.44,<5",
+    "sentencepiece",
+    "protobuf",
+    "tiktoken",
+]
+
+[project.scripts]
+anon = "anonymizer.cli:main"
+anon-agent = "anonymizer.agent:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["anonymizer"]

@@ -1,0 +1,20 @@
+# --- Plugin ---
+plugin/node_modules/
+plugin/dist/
+plugin/bun.lock
+
+# --- Daemon ---
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# --- Runtime state: NEVER commit ---
+# state.json holds the complete Placeholder -> Original table.
+# Committing it would defeat the entire point of the tool.
+state.json
+anon.sock
+serve.log
+
+# --- OS ---
+.DS_Store

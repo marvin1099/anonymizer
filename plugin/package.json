@@ -1,0 +1,9 @@
+{
+  "name": "opencode-anonymizer",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "dependencies": {
+    "@opencode/plugin": "^2.2.1"
+  }
+}
