@@ -48,7 +48,9 @@ function trustedPaths(): string[] {
       trustedCache = { mtime: st.mtimeMs, extra: list.map(normalizeTrusted).filter(Boolean) }
     }
   } catch {
-    // keine Config oder kaputt -> nur die eingebauten Pfade
+    // kaputte/fehlende Config -> Cache zuruecksetzen (fail-closed), damit
+    // eine alte Allowlist nicht bis zum Neustart haelt.
+    trustedCache = { mtime: 0, extra: [] }
   }
   return [...TRUSTED_BUILTIN, ...trustedCache.extra]
 }
@@ -152,6 +154,9 @@ function pathDecision(tool: string, input: unknown): "trusted" | "denied" | "nor
   if (!FILE_TOOLS.has(tool)) return "normal" // Shell/MCP: nie ausgenommen
   const s = stringifyInput(input)
   if (!s) return "normal"
+  // Pfad-Traversal hart blockieren: ".."-Segmente koennen die Allowlist
+  // aushebeln.
+  if (/(^|\/|\\)\.\.(\/|\\|$)/.test(s)) return "denied"
   if (NEVER_TRUSTED.some((p) => s.includes(p))) return "denied"
   if (trustedPaths().some((p) => s.includes(p))) return "trusted"
   return "normal"
@@ -372,8 +377,12 @@ async function reverseMap(text: string): Promise<string> {
 async function resolvePathArg(text: string): Promise<string> {
   const out = await reverseMap(text)
   if (out.startsWith("/")) return out // war schon ein Pfad -> unveraendert
-  const m = out.match(/(\/[^\s"'`,;:()\[\]]+)/) // Span enthielt Wort + Pfad
-  return m ? m[1] : out
+  // Span enthielt Wort + Pfad: Pfad ist der Teil ab dem ersten "/" bis zum
+  // Ende (Pfade duerfen Leerzeichen enthalten, daher nicht an Whitespace
+  // schneiden).
+  const idx = out.indexOf("/")
+  if (idx > 0) return out.slice(idx)
+  return out
 }
 
 /** Recursively reverse-map every string in a tool input object. */
@@ -539,8 +548,10 @@ export default Plugin.define({
       // Gesperrte Dateien: nur mit [ANON:RAW] lesbar (Credentials, Logs,
       // Sessions, state.json). Alles andere bleibt dabei gefiltert.
       if (decision === "denied" && rawPaths) return
-      if (!forceTokens && decision === "trusted") return
-      if (forceTokens > 0) forceTokens--
+      if (decision === "trusted") {
+        if (forceTokens > 0) forceTokens--
+        else return
+      }
       await anonymizeResult(event.result as { content?: unknown })
     })
 

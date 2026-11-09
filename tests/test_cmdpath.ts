@@ -34,16 +34,6 @@ async function fresh() {
 }
 
 let failures = 0
-// Roher Dump nach ~/.local/share/anonymizer (trusted): dort wird nichts
-// anonymisiert, sonst zeigt die Konsole wieder nur Platzhalter.
-const dumpLines: string[] = []
-const dump = (s: string) => dumpLines.push(s)
-process.on("exit", () => {
-  try {
-    const { writeFileSync } = require("node:fs")
-    writeFileSync("${HOME_DIR}/.local/share/anonymizer/cmdpath_dbg.txt", dumpLines.join("\n"))
-  } catch {}
-})
 const check = (name: string, ok: boolean, info = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${info ? "  -> " + info : ""}`)
   if (!ok) failures++
@@ -91,8 +81,6 @@ for (const tool of ["shell", "bash"]) {
   const inp = await p.before("shell", {
     command: `echo "${tag}" "${dbl(tag)}"`,
   })
-  // Rohdump: die Terminal-Anzeige ist selbst gefiltert und taeuscht.
-  dump(`MIXED   : ${JSON.stringify(inp.command)}`)
   check("gemischt: einmal aufgeloest, einmal literal", inp.command === `echo "Peter Parker" "${tag}"`, "")
 }
 
@@ -100,8 +88,6 @@ for (const tool of ["shell", "bash"]) {
 {
   const inp = await p.before("shell", { command: `cat "/tmp/${dbl(tag)}.txt"` })
   const inp2 = await p.before("read", { filePath: `/tmp/${tag}.txt` })
-  dump(`ESC-FILE: ${JSON.stringify(inp.command)}`)
-  dump(`ESC-PATH: ${JSON.stringify(inp2.filePath)}`)
   check("Dateiname aus [[TAG]] bleibt literal", inp.command === `cat "/tmp/${tag}.txt"`, "")
   check("Pfad-Argument mit [TAG] aufgeloest", inp2.filePath === "/tmp/Peter Parker.txt", "")
 }

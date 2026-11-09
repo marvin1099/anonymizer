@@ -52,7 +52,7 @@ def _resolve_overlaps(spans: list[Span]) -> list[Span]:
 
 _TITLES = re.compile(r"^(herrn?|frau|frauen|dr\.?|prof\.?|mag\.?|ing\.?|dipl[\-\s]?ing\.?)+\s+", re.IGNORECASE)
 
-# Eigene Platzhalter (Anna Müller, /Users/example-user/y.json, [PERSON_1]-Escapes) duerfen NICHT
+# Eigene Platzhalter (Anna Müller, /Users/<user>/y.json, [PERSON_1]-Escapes) duerfen NICHT
 # erneut erkannt werden: sonst labelt GLiNER den literalen Text "Anna Müller" als
 # Person, vergibt eine neue Nummer und das Reverse-Mapping wird zu Muell
 # ("[PERSON_1]" -> "Anna Müller"). Beim Schreiben landet dann Platzhalter-Text
@@ -137,7 +137,7 @@ def anonymize(
     # Reverse-Lookup-Tabelle (nur im persistenten Daemon-State): exaktes
     # Original je Placeholder, damit das Plugin auch NACH einem Plugin-Reload
     # oder Daemon-Neustart Pfade/Dateien wieder zurueckuebersetzen kann
-    # (z.B. /Users/[USERNAME_1]/... -> /Users/example-user/...).
+    # (z.B. /Users/[USERNAME_1]/... -> /Users/<user>/...).
     exact: dict[str, str] = state.setdefault("exact", {}) if state is not None else {}
     for s in spans:
         key = (s.label, _norm(s.text))
@@ -177,6 +177,18 @@ def anonymize(
                 replacements.append(
                     Replacement("PERSON", tok, full.placeholder, s, e, "alias", 0.95)
                 )
+
+    # Alias-Spans duerfen keine anderen Spans ueberlappen (sonst
+    # Doppel-Ersetzung/Beschädigung). Greedy-Durchlauf: Alias wird verworfen,
+    # wenn er mit einem bereits behaltenen Span kollidiert.
+    kept: list[Replacement] = []
+    for r in replacements:
+        if r.source == "alias" and any(
+            r.start < o.end and o.start < r.end for o in kept
+        ):
+            continue
+        kept.append(r)
+    replacements = kept
 
     out = text
     for r in sorted(replacements, key=lambda r: r.start, reverse=True):

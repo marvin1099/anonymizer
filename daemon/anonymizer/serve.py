@@ -33,6 +33,9 @@ STATE_PATH = _STATE_ENV or os.path.join(_SHARE, "state.json")
 # wird mehrfach gelesen). Klein gehalten, damit der RAM nicht wächst.
 _CACHE: "OrderedDict[str, dict]" = OrderedDict()
 _CACHE_MAX = 32
+# Serialisiert Zugriff auf State/Cache ueber alle Client-Threads (Korrektheit
+# der Platzhalter-Nummerierung + Race-freies Speichern).
+_STATE_LOCK = threading.RLock()
 
 
 def _load_state() -> dict:
@@ -40,6 +43,7 @@ def _load_state() -> dict:
     Daemon-Neustart ueberleben (sonst kann das Plugin Pfade nicht mehr
     zurueckuebersetzen: '/Users/[USERNAME_1]/...' -> File not found)."""
     try:
+        os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
         with open(STATE_PATH, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
@@ -51,6 +55,10 @@ def _load_state() -> dict:
                 for p in (data.get("seen") or [])
                 if len(p) == 3
             }
+            try:
+                os.chmod(STATE_PATH, 0o600)
+            except OSError:
+                pass
             return data
     except FileNotFoundError:
         pass
@@ -61,6 +69,7 @@ def _load_state() -> dict:
 
 def _save_state(state: dict) -> None:
     try:
+        os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
         payload = {
             "counters": state.get("counters", {}),
             # Tupel-Keys sind in JSON unzulaessig -> Liste von 3-Tupeln.
@@ -70,9 +79,20 @@ def _save_state(state: dict) -> None:
         tmp = STATE_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
         os.replace(tmp, STATE_PATH)
-        os.chmod(STATE_PATH, 0o600)
+        try:
+            os.chmod(STATE_PATH, 0o600)
+        except OSError:
+            pass
     except Exception as e:  # noqa: BLE001
+        try:
+            os.unlink(STATE_PATH + ".tmp")
+        except OSError:
+            pass
         print(f"[serve] WARN state nicht speicherbar: {e}", flush=True)
 
 
@@ -97,10 +117,10 @@ def _handle(line: str, state: dict, emit=None) -> dict:
     # fehlt (z.B. aus einer aelteren Session).
     if req.get("resolve") is not None:
         exact = state.get("exact", {})
-        if isinstance(req["resolve"], list):
-            keys = [str(k) for k in req["resolve"]]
-            return {"ok": True, "map": {k: exact[k] for k in keys if k in exact}}
-        return {"ok": True, "map": exact}
+        if not isinstance(req["resolve"], list):
+            return {"ok": False, "error": "resolve must be a list"}
+        keys = [str(k) for k in req["resolve"]]
+        return {"ok": True, "map": {k: exact[k] for k in keys if k in exact}}
 
     text = req.get("text", "")
     opts = req.get("opts") or {}
@@ -211,6 +231,7 @@ def serve(socket_path: str = SOCKET_PATH) -> None:
         except OSError:
             os.unlink(socket_path)
 
+    os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
     _preload()
     state: dict = _load_state()
     print(
@@ -253,7 +274,8 @@ def serve(socket_path: str = SOCKET_PATH) -> None:
                     line, buf = buf.split(b"\n", 1)
                     if not line.strip():
                         continue
-                    resp = _handle(line.decode("utf-8", "replace"), state, emit=emit)
+                    with _STATE_LOCK:
+                        resp = _handle(line.decode("utf-8", "replace"), state, emit=emit)
                     with lock:
                         conn.sendall((json.dumps(resp, ensure_ascii=False) + "\n").encode("utf-8"))
         except OSError:
