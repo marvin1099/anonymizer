@@ -1,3 +1,4 @@
+import { SOCK } from "./helpers"
 // Beweis ohne State-Leerung: Numbering + Reverse-Mapping ueberleben einen
 // Daemon-Neustart. Nutzt einen einmaligen Namen, damit die Nummern in einem
 // warmen State eindeutig sind (state.json wird bewusst NICHT geloescht).
@@ -6,9 +7,8 @@ import { connect } from "node:net"
 
 const S = String.fromCharCode(91)
 const C = String.fromCharCode(93)
-const SOCK = "/Users/example-user/.local/share/anonymizer/anon.sock"
 const NAME = "Wilhelmine Faydrbush"
-const PATH = "/Users/example-user/persist_warm.json"
+const PATH = "${HOME_DIR}/warm.json"
 
 function send(payload: unknown): Promise<any | null> {
   return new Promise((resolve) => {

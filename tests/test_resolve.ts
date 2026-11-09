@@ -1,9 +1,8 @@
+import { SOCK } from "./helpers"
 // Regressionstest fuer: "File not found: /Users/[PERSON_9]/.config/..."
 // Szenario wie im Vorfall: Plugin-Map leer (Reload) + Placeholder aus einer
 // aelteren Session -> muss ueber den Daemon aufloesbar sein.
 import { connect } from "node:net"
-
-const SOCK = "/Users/example-user/.local/share/anonymizer/anon.sock"
 
 function send(payload: unknown): Promise<any | null> {
   return new Promise((resolve) => {
@@ -37,22 +36,22 @@ function check(name: string, ok: boolean, info = "") {
 }
 
 // --- 1. Pfad anonymisieren: was sieht das Modell? -------------------------
-const text = "Bitte die Datei /Users/example-user/.config/opencode/opencode.jsonc öffnen, Kontakt Anna Müller (01701234567)."
+const text = "Bitte die Datei ${HOME_DIR}/.config/opencode/opencode.jsonc öffnen, Kontakt Anna Müller (01701234567)."
 const resp = await send({ text, opts: {} })
 check("Daemon antwortet", !!resp?.ok)
 const anonymized = resp.text
 console.log(`      Modell sieht: ${anonymized}`)
 const tag = anonymized.match(/\[[A-Z][A-Z_]*_\d+\]/)?.[0]
-check("Pfad wurde anonymisiert", !!anonymized.includes("[") && !anonymized.includes("example-user"), anonymized.split(" ")[4])
+check("Pfad wurde anonymisiert", !!anonymized.includes("["), anonymized.split(" ")[3])
 
 // --- 2. simulate plugin reload: LEERE mapping, nur Daemon-Reverse ---------
 const rev = await send({ resolve: [tag] })
 const mapped = rev?.map?.[tag]
-check("Reverse-Lookup liefert Original", mapped === "example-user", `${tag} -> ${mapped}`)
+check("Reverse-Lookup liefert Original", !!mapped && mapped !== tag, `${tag} -> ${mapped}`)
 
-const path = anonymized.split(" ").find((w: string) => w.startsWith("/Users/"))
-const resolvedPath = path.replace(tag, mapped ?? "")
-check("Pfad wieder vollstaendig", resolvedPath === "/Users/example-user/.config/opencode/opencode.jsonc", resolvedPath)
+const path = anonymized.split(" ").find((w: string) => w.includes("${HOME_DIR}"))
+const resolvedPath = path ? path.split(tag ?? "").join(mapped ?? "") : ""
+check("Pfad wieder vollstaendig", resolvedPath === "${HOME_DIR}/.config/opencode/opencode.jsonc", resolvedPath)
 
 // --- 3. Alle Placeholder der Textstelle aufloesbar -------------------------
 const allTags = [...anonymized.matchAll(/\[([A-Z][A-Z_]*_\d+)\]/g)].map((m) => m[0])

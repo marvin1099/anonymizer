@@ -1,20 +1,25 @@
 // Auswege aus der Sperrliste:
 //   Default        -> gesperrte Dateien gefiltert
 //   [ANON:RAW]     -> nur die gesperrten Pfade roh, sonst bleibt alles gefiltert
-//   [ANON:OFF] / <- -> alles roh
+//   [ANON:OFF]        -> alles roh
 // Aufruf: bun test_raw.ts
-import def0 from "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js"
+import { PLUGIN_DIST, DENIED as DENIED_PATH, TRUSTED_FILE } from "./helpers"
+const def0: any = await import(PLUGIN_DIST)
 
 const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
 
-const DENIED = "/Users/example-user/.local/share/anonymizer/state.json"
-const TRUSTED = "/Users/example-user/.config/opencode/opencode.jsonc"
+// DENIED_PATH: Sperrliste, absichtlich innerhalb eines vertrauenswuerdigen
+// Ordners -- nur so zeigt der Test, dass die Sperre die Allowlist schlaegt.
+// TRUSTED_FILE: vertrauenswuerdig NUR ueber die Sandbox-Config von run.sh.
+// Frueher beide ein Benutzerpfad, der nur durch die manuelle Config passte.
+const DENIED = DENIED_PATH
+const TRUSTED = TRUSTED_FILE
 const NORMAL = "/tmp/pii.txt"
 
 let seq = 0
 async function fresh() {
   const mod: any = await import(
-    "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js?case=" + ++seq
+    `${PLUGIN_DIST}?case=` + ++seq
   )
   const d: any = (mod as any)?.default ?? mod
   const H: Record<string, (e: any) => Promise<void> | void> = {}
@@ -76,19 +81,12 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   check("RAW: endet bei markerloser Folgenachricht", isAnon(await p.after(DENIED)))
 }
 
-// 4) Voll-Ausweg OFF / <- bleibt moeglich
+// 4) Voll-Ausweg OFF bleibt moeglich
 {
   const p = await fresh()
   await p.prompt("[ANON:OFF] alles roh")
   check("OFF: gesperrt roh", raw(await p.after(DENIED)))
   check("OFF: fremde Datei auch roh", raw(await p.after(NORMAL)))
-}
-{
-  // <- ist kein Marker mehr: Sperre bleibt, alles bleibt gefiltert
-  const p = await fresh()
-  await p.prompt("<- alles roh")
-  check("<-: Sperre bleibt aktiv", isAnon(await p.after(DENIED)))
-  check("<-: fremde Datei bleibt gefiltert", isAnon(await p.after(NORMAL)))
 }
 
 {

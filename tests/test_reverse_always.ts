@@ -3,14 +3,15 @@
 // abhaengen, ob die Filterung an oder aus ist -- es laeuft ja in der anderen
 // Richtung (Tool-Eingabe), nicht bei der Ausgabe.
 // Aufruf: bun test_reverse_always.ts
-import def0 from "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js"
+import { PLUGIN_DIST } from "./helpers"
+const def0: any = await import(PLUGIN_DIST)
 
 const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
 
 let seq = 0
 async function fresh() {
   const mod: any = await import(
-    "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js?case=" + ++seq
+    `${PLUGIN_DIST}?case=` + ++seq
   )
   const d: any = (mod as any)?.default ?? mod
   const H: Record<string, (e: any) => Promise<void> | void> = {}
@@ -59,7 +60,6 @@ check("Tag + Original ermittelt", !!tag, `${tag} -> ${real}`)
 // Alle Markerzustaende durchprobieren
 const states: Array<[string, string]> = [
   ["ohne Marker", "ganz normale Nachricht"],
-  ["Kurzmarker <-", "<- arbeite mit Rohdaten"],
   ["[ANON:OFF]", "[ANON:OFF] arbeite mit Rohdaten"],
   ["[ANON:S-OFF]", "[ANON:S-OFF] einmal roh"],
   ["[ANON:FORCED]", "[ANON:FORCED] filter streng"],

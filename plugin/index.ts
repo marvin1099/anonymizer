@@ -2,9 +2,14 @@ import { Plugin } from "@opencode/plugin"
 import { connect } from "node:net"
 import { spawn } from "node:child_process"
 import { readFileSync, statSync } from "node:fs"
+import { homedir } from "node:os"
 
-const ANON = "/Users/example-user/.local/bin/anon"
-const SOCK = "/Users/example-user/.local/share/anonymizer/anon.sock"
+// Pfade aus $HOME abgeleitet, nicht eingebacken -- sonst waere das Repo nur
+// auf einem Rechner nutzbar. Ueberschreibbar ueber die Umgebung, damit die
+// Tests gegen ein Sandbox-Verzeichnis laufen koennen.
+const HOME = homedir()
+const ANON = process.env.ANON_BIN ?? `${HOME}/.local/bin/anon`
+const SOCK = process.env.ANON_SOCK ?? `${HOME}/.local/share/anonymizer/anon.sock`
 
 // Directories whose content contains no personal data (source code, config).
 // Reads/writes touching these skip anonymization so code is never mangled.
@@ -20,13 +25,17 @@ const TRUSTED_BUILTIN = [
 //   ~/.config/opencode/anonymizer.json  ->  { "trustedPaths": ["~/Projects/mein-projekt"] }
 // Re-read whenever the file changes, so adding a folder needs no restart.
 // WARNING: everything under a trusted path is passed through UNFILTERED.
-const TRUSTED_CONFIG = "/Users/example-user/.config/opencode/anonymizer.json"
+// The user adds their own exempt folders (own project dirs, notes, …) here:
+//   ~/.config/opencode/anonymizer.json  ->  { "trustedPaths": ["~/Projects/mein-projekt"] }
+// Re-read whenever the file changes, so adding a folder needs no restart.
+// WARNING: everything under a trusted path is passed through UNFILTERED.
+const TRUSTED_CONFIG = process.env.ANON_CONFIG ?? `${HOME}/.config/opencode/anonymizer.json`
 let trustedCache = { mtime: 0, extra: [] as string[] }
 
 function normalizeTrusted(p: string): string {
   let s = String(p ?? "").trim()
   if (!s) return ""
-  if (s.startsWith("~/")) s = "/Users/example-user" + s.slice(1)
+  if (s.startsWith("~/")) s = HOME + s.slice(1)
   return s.endsWith("/") ? s : s + "/"
 }
 
@@ -429,12 +438,6 @@ export default Plugin.define({
       if (!text || !event.prompt) return
       // 1) Marker auswerten (einfache oder doppelte Klammern).
       const originalText = text
-      // "<-" war einmal ein Marker, ist aber entfernt: es hatte als einziges
-      // Marker kein [ANON:...]-Schema. Damit es kein stiller No-op bleibt,
-      // gibt es einen Hinweis statt einer Warnung ueber "unbekannten Marker".
-      if (/^\s*<-(?=\s|$)/.test(text)) {
-        toast("'<-' ist kein Marker mehr — schalte mit [[ANON:OFF]] aus", "warning", "Anonymizer", 6000)
-      }
       for (const m of MARKERS) {
         const hits = text.match(m.re)
         if (!hits) continue

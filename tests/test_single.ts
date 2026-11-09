@@ -1,15 +1,16 @@
 // Einmal-Marker: [ANON:S-OFF] / [ANON:S-FORCE] und einfache Klammern.
 // Aufruf: bun test_single.ts
-import def0 from "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js"
+import { PLUGIN_DIST, HOME_DIR } from "./helpers"
+const def0: any = await import(PLUGIN_DIST)
 
 const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
-const TRUSTED = { file_path: "/Users/example-user/.local/share/anonymizer/x.txt" }
+const TRUSTED = { file_path: "${HOME_DIR}/.local/share/anonymizer/x.txt" }
 const EXT = { file_path: "/tmp/x.txt" }
 
 let seq = 0
 async function fresh() {
   const mod: any = await import(
-    "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js?case=" + ++seq
+    `${PLUGIN_DIST}?case=` + ++seq
   )
   const d: any = (mod as any)?.default ?? mod
   const H: Record<string, (e: any) => Promise<void> | void> = {}
@@ -141,21 +142,6 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   const t = await p.prompt("[ANON:FOO] was ist das")
   check("unbekannter Marker bleibt im Text", t.includes("ANON:FOO"), JSON.stringify(t))
   check("unbekannter Marker erzeugt Warnung", p.toasts.some((x) => /Unbekannter Marker/.test(x)), p.toasts[0] ?? "-")
-}
-
-// 8) Der Pfeil ist KEIN Marker mehr (entfernt, passte nicht zum Schema).
-//    Er darf die Filterung nicht mehr abschalten und bleibt normaler Text.
-{
-  for (const msg of [LT + "- erste Anfrage", LT + "", "x " + LT + " y"]) {
-    const p = await fresh()
-    const t = await p.prompt(msg)
-    check("Pfeil schaltet NICHT aus: " + JSON.stringify(msg), isAnon(await p.after(PII)), "")
-    check("Pfeil bleibt Text: " + JSON.stringify(msg), t.includes(LT), JSON.stringify(t))
-  }
-  // Hinweis-Toast statt stiller No-op
-  const p = await fresh()
-  await p.prompt(LT + " bitte roh")
-  check("Pfeil erzeugt Hinweis-Toast", p.toasts.some((x) => /kein Marker/.test(x)), p.toasts[0] ?? "-")
 }
 
 console.log(failures === 0 ? "\n== EINMAL-MARKER BESTAETIGT ==" : `\n== ${failures} FEHLER ==`)

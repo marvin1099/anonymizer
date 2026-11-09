@@ -1,7 +1,8 @@
 // Test: Progress-Feedback. grosse Ausgabe -> Toasts mit Fortschritt,
 // kleine Ausgabe -> stumm. Mocked client, echter Daemon.
 // Aufruf: bun test_progress.ts
-import def0 from "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js"
+import { PLUGIN_DIST } from "./helpers"
+const def0: any = await import(PLUGIN_DIST)
 
 const toasts: Array<{ message: string; variant: string }> = []
 const H: Record<string, (e: any) => Promise<void> | void> = {}

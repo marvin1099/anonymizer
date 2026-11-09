@@ -1,14 +1,15 @@
 // Kommando-Pfad: [TAG] wird aufgeloest, [[TAG]] bleibt literal.
 // Deckt auch den Toolnamen-Unterschied ab ("shell" vs "bash" vs sonstige).
 // Aufruf: bun test_cmdpath.ts
-import def0 from "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js"
+import { PLUGIN_DIST, HOME_DIR } from "./helpers"
+const def0: any = await import(PLUGIN_DIST)
 
 const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
 
 let seq = 0
 async function fresh() {
   const mod: any = await import(
-    "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js?case=" + ++seq
+    `${PLUGIN_DIST}?case=` + ++seq
   )
   const d: any = (mod as any)?.default ?? mod
   const H: Record<string, (e: any) => Promise<void> | void> = {}
@@ -40,7 +41,7 @@ const dump = (s: string) => dumpLines.push(s)
 process.on("exit", () => {
   try {
     const { writeFileSync } = require("node:fs")
-    writeFileSync("/Users/example-user/.local/share/anonymizer/cmdpath_dbg.txt", dumpLines.join("\n"))
+    writeFileSync("${HOME_DIR}/.local/share/anonymizer/cmdpath_dbg.txt", dumpLines.join("\n"))
   } catch {}
 })
 const check = (name: string, ok: boolean, info = "") => {

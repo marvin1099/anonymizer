@@ -6,7 +6,8 @@
 // Jedes Szenario mit frisch geladener Plugin-Instanz, sonst wirken die
 // OFF-Tokens des vorherigen Szenarios weiter (by design).
 // Aufruf: bun test_marker.ts
-import def0 from "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js"
+import { PLUGIN_DIST } from "./helpers"
+const def0: any = await import(PLUGIN_DIST)
 
 const PII =
   "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567, IBAN DE89 3704 0044 0532 0130 00."
@@ -14,7 +15,7 @@ const PII =
 let seq = 0
 async function fresh() {
   const mod: any = await import(
-    "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js?case=" + ++seq
+    `${PLUGIN_DIST}?case=` + ++seq
   )
   const d: any = (mod as any)?.default ?? mod
   const H: Record<string, (e: any) => Promise<void> | void> = {}

@@ -166,7 +166,3 @@ it is therefore listed in `.gitignore`.
 ## License
 
 GNU Affero General Public License v3.0. See [LICENSE](LICENSE).
-
-Using this over a network (including running the daemon for a team) triggers the
-AGPL's network clause: you must offer the corresponding source to users of that
-network.

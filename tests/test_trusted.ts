@@ -1,27 +1,48 @@
-// Trusted-Pfade aus ~/.config/opencode/anonymizer.json (hot reload, kein Restart).
-// Aufruf: bun test_trusted.ts
-import { writeFileSync, readFileSync, rmSync, existsSync } from "node:fs"
-import def0 from "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js"
+// Trusted-Pfade aus anonymizer.json -- HEISST: aus EIGENER Test-Config.
+//
+// Frueher schrieb dieser Test in ~/.config/opencode/anonymizer.json und
+// stellte den Inhalt im finally-Block wieder her. Das ist genau die Kopplung,
+// die diesen Test nicht universell macht:
+//   * Abbruch mid-test (oder Crash in einem Signal-Handler) zerstoerte die
+//     echten Pfade des Nutzers,
+//   * der Test bestand nur, solange die manuelle Config zufaellig passte,
+//   * zwei Tests gleichzeitig liefen sich gegenseitig ueber den Fuss.
+//
+// Jetzt: eigene Config-Datei in der Sandbox, per ANON_CONFIG gemeldet, bevor
+// das Plugin das erste Mal geladen wird (TRUSTED_CONFIG wird beim Import der
+// Modul-Datei aus der Umgebung gelesen). Die echte Konfiguration wird nie
+// geoeffnet, nie geschrieben, nie wiederhergestellt -- sie wird ignoriert.
+//
+// Aufruf: ./run.sh test_trusted.ts
+import { writeFileSync, rmSync, existsSync, mkdirSync } from "node:fs"
+import { dirname } from "node:path"
+import { PLUGIN_DIST, SANDBOX, HOME_DIR, BUILTIN_RAW, TRUSTED_DIR } from "./helpers"
+const def0: any = await import(PLUGIN_DIST)
 
-const CONFIG = "/Users/example-user/.config/opencode/anonymizer.json"
+// EIGENE Config -- unabhaengig von der Sandbox-Config, die run.sh anlegt.
+// Darin steht am Ende nur, was DIESE Suite braucht.
+const OWN_CONFIG = `${SANDBOX}/config/trusted-case.json`
+const PREVIOUS_CONFIG = process.env.ANON_CONFIG
+process.env.ANON_CONFIG = OWN_CONFIG // VOR dem ersten fresh(): siehe Header
+
 const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
-const HOME_PROJ = "/Users/example-user/Projects/mein-projekt"
-const OTHER = "/Users/example-user/Downloads/etwas.txt"
+// "fremd" = nirgends eingetragen. Der Ordnername traegt keine Entity, der
+// PATH bleibt also literal -- was nichts ausmacht, denn hier geht es um den
+// INHALT (PII darin wird gefiltert, solange der Pfad nicht vertrauenswuerdig).
+const OTHER = `${SANDBOX}/anderswo/etwas.txt`
 
-// WICHTIG: Diese Datei wird waehrend des Tests ueberschrieben. Deshalb den
-// Originalinhalt vorher sichern und im finally-Block (und zusaetzlich bei
-// Abbruch) byteweise zurueckschreiben. Vorher stand hier ein
-// `writeFileSync(CONFIG, '{"trustedPaths":[]}')`, das die echten Pfade des
-// Nutzers zerstoert hat.
-const BACKUP = existsSync(CONFIG) ? readFileSync(CONFIG, "utf8") : null
-function restore(): void {
-  if (BACKUP === null) rmSync(CONFIG, { force: true })
-  else writeFileSync(CONFIG, BACKUP)
+function restoreEnv(): void {
+  if (PREVIOUS_CONFIG === undefined) delete process.env.ANON_CONFIG
+  else process.env.ANON_CONFIG = PREVIOUS_CONFIG
 }
-process.on("exit", restore)
+function cleanup(): void {
+  restoreEnv()
+  if (existsSync(OWN_CONFIG)) rmSync(OWN_CONFIG, { force: true })
+}
+process.on("exit", cleanup)
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
-    restore()
+    cleanup()
     process.exit(130)
   })
 }
@@ -31,13 +52,13 @@ const check = (name: string, ok: boolean, info = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${info ? "  -> " + info : ""}`)
   if (!ok) failures++
 }
+const raw = (s: string) => s === PII
+const isAnon = (s: string) =>
+  !s.includes("peter.parker@example.com") && s.includes("[") && !s.includes("[ANON_ERROR]")
 
-const hadConfig = existsSync(CONFIG)
 let seq = 0
 async function fresh() {
-  const mod: any = await import(
-    "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js?case=" + ++seq
-  )
+  const mod: any = await import(`${PLUGIN_DIST}?case=` + ++seq)
   const d: any = (mod as any)?.default ?? mod
   const H: Record<string, (e: any) => Promise<void> | void> = {}
   const ctx: any = {
@@ -52,47 +73,71 @@ async function fresh() {
     return ev.result.content as string
   }
 }
-const raw = (s: string) => s === PII
-const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.includes("[")
+
+// Schreibt ausschliesslich in die EIGENE Datei (Legende -> Testfaelle).
+function setConfig(json: string): void {
+  mkdirSync(dirname(OWN_CONFIG), { recursive: true })
+  writeFileSync(OWN_CONFIG, json)
+}
 
 try {
   // 1) Config mit einem Projektordner
-  writeFileSync(CONFIG, JSON.stringify({ trustedPaths: ["~/Projects/mein-projekt"] }))
+  setConfig(JSON.stringify({ trustedPaths: [`${SANDBOX}/mein-projekt`] }))
   {
     const after = await fresh()
-    check("Config-Pfad ist frei (read)", raw(await after({ file_path: `${HOME_PROJ}/notiz.txt` })),
-      (await after({ file_path: `${HOME_PROJ}/notiz.txt` })).slice(0, 40))
+    const p = `${SANDBOX}/mein-projekt/notiz.txt`
+    check("Config-Pfad ist frei (read)", raw(await after({ file_path: p })),
+      (await after({ file_path: p })).slice(0, 40))
     check("anderer Pfad bleibt gefiltert", isAnon(await after({ file_path: OTHER })))
-    check("Shell bleibt immer gefiltert", isAnon(await after({ command: `cat ${HOME_PROJ}/notiz.txt` }, "shell")))
+    check("Shell bleibt immer gefiltert",
+      isAnon(await after({ command: `cat ${SANDBOX}/mein-projekt/notiz.txt` }, "shell")))
   }
 
-  // 2) Hot-Reload: Pfad wird entfernt -> wieder filtern, ohne Neustart
-  writeFileSync(CONFIG, JSON.stringify({ trustedPaths: [] }))
+  // 2) Hot-Reload: Pfad wird entfernt -> wieder filtern, ohne Neustart.
+  //    (trustedPaths() liest die Datei bei mtime-Aenderung neu.)
+  setConfig(JSON.stringify({ trustedPaths: [] }))
   {
     const after = await fresh()
-    check("entfernter Pfad wird wieder gefiltert", isAnon(await after({ file_path: `${HOME_PROJ}/notiz.txt` })))
+    check("entfernter Pfad wird wieder gefiltert",
+      isAnon(await after({ file_path: `${SANDBOX}/mein-projekt/notiz.txt` })))
   }
 
   // 3) Kaputte Config -> eingebaute Pfade gelten weiter, kein Absturz
-  writeFileSync(CONFIG, "{ kaputt: ")
+  setConfig("{ kaputt: ")
   {
     const after = await fresh()
-    check("kaputte Config -> interne Pfade weiter frei",
-      raw(await after({ file_path: "/Users/example-user/.config/opencode/plugins/x/y.ts" })))
+    check("kaputte Config -> interne Pfade weiter frei", raw(await after({ file_path: BUILTIN_RAW })))
     check("kaputte Config -> externe Pfade gefiltert", isAnon(await after({ file_path: OTHER })))
   }
 
-  // 4) ~/Praefix und Slash-Formen
-  writeFileSync(CONFIG, JSON.stringify({ trustedPaths: ["~/Projects/anders/", "~/Notes/privat"] }))
+  // 4) ~/Praefix und Slash-Formen. "~" muss auf DIESEN Rechner expandieren,
+  //    deshalb HOME_DIR und kein eingebauter Benutzername.
+  setConfig(JSON.stringify({
+    trustedPaths: ["~/.claude-trust-dir/", `${SANDBOX}/anders`, `${HOME_DIR}/Notes/privat`],
+  }))
   {
     const after = await fresh()
-    check("Slash-Form am Ende funktioniert", raw(await after({ file_path: "/Users/example-user/Projects/anders/a.md" })))
-    check("zweiter Pfad ohne Slash auch", raw(await after({ file_path: "/Users/example-user/Notes/privat/x.md" })))
+    check("~ wird expandiert",
+      raw(await after({ file_path: `${HOME_DIR}/.claude-trust-dir/a.md` })))
+    check("Slash-Form am Ende funktioniert",
+      raw(await after({ file_path: `${SANDBOX}/anders/a.md` })))
+    check("zweiter Pfad ohne Slash auch",
+      raw(await after({ file_path: `${HOME_DIR}/Notes/privat/x.md` })))
     check("Prefix-Kollision faellt nicht durch",
-      isAnon(await after({ file_path: "/Users/example-user/Projects/andersgelogen/x.md" })))
+      isAnon(await after({ file_path: `${SANDBOX}/andersgelogen/x.md` })))
+  }
+
+  // 5) Der eingetragene Ordner traegt die Allowlist, die Sperrliste schlaegt
+  //    sie: state.json innerhalb eines vertrauenswuerdigen Ordners bleibt roh
+  //    NUR mit [ANON:RAW], nie ohne.
+  setConfig(JSON.stringify({ trustedPaths: [TRUSTED_DIR] }))
+  {
+    const after = await fresh()
+    const denied = `${TRUSTED_DIR}/.local/share/anonymizer/state.json`
+    check("Sperrliste schlaegt Allowlist (gefiltert)", isAnon(await after({ file_path: denied })))
   }
 } finally {
-  restore()
+  cleanup()
 }
 
 console.log(failures === 0 ? "\n== TRUSTED-CONFIG BESTAETIGT ==" : `\n== ${failures} FEHLER ==`)

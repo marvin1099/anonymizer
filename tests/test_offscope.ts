@@ -4,15 +4,16 @@
 //  3) OFF bleibt ueber Folgeanfragen AN, bis [[ANON:ON]]
 //  4) FORCED gilt nur fuer die eine Anfrage
 // Aufruf: bun test_offscope.ts
-import def0 from "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js"
+import { PLUGIN_DIST, HOME_DIR } from "./helpers"
+const def0: any = await import(PLUGIN_DIST)
 
 const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
-const TRUSTED_PATH = "/Users/example-user/.local/share/anonymizer/x.txt"
+const TRUSTED_PATH = "${HOME_DIR}/.local/share/anonymizer/x.txt"
 
 let seq = 0
 async function fresh() {
   const mod: any = await import(
-    "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js?case=" + ++seq
+    `${PLUGIN_DIST}?case=` + ++seq
   )
   const d: any = (mod as any)?.default ?? mod
   const H: Record<string, (e: any) => Promise<void> | void> = {}

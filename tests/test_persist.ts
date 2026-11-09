@@ -1,11 +1,12 @@
+import { SOCK, SANDBOX } from "./helpers"
 // Beweis: Numbering + Reverse-Mapping ueberleben einen Daemon-Neustart.
 // WICHTIG: Alle Platzhalter-Literale in dieser Datei sind als [[PERSON_x]]
 // geschrieben -- der Plugin-Write-Path loest "[PERSON_1]" NICHT auf, es
 // schreibt literal "Anna Müller" auf die Platte. Sonst wuerde diese Datei
 // beim Speichern ihre eigenen Marker durch echte Namen ersetzen.
 import { connect } from "node:net"
+import { writeFileSync, readFileSync, existsSync } from "node:fs"
 
-const SOCK = "/Users/example-user/.local/share/anonymizer/anon.sock"
 function send(payload: unknown): Promise<any | null> {
   return new Promise((resolve) => {
     const s = connect(SOCK)
@@ -38,35 +39,63 @@ const check = (name: string, ok: boolean, info = "") => {
 }
 
 const phase = process.argv[2] ?? "a"
-const T1 = "[PERSON_1]"
-const T2 = "[PERSON_2]"
+const STATE_FILE = `${SANDBOX}/share/persist_a.json`
+
+async function discoverTags(): Promise<{ anna: string; peter: string; path: string }> {
+  const r = await send({
+    text: "Anna Müller und Peter Schmidt sind die Kontakte. Datei: ${HOME_DIR}/x.json",
+    opts: {},
+  })
+  const pathTag = r.text.match(/\[URL_\d+\]/)?.[0] ?? ""
+  const tags = [...r.text.matchAll(/\[[A-Z][A-Z_]*_\d+\]/g)].map((m) => m[0])
+  const rev = await send({ resolve: tags })
+  let anna = ""
+  let peter = ""
+  for (const t of tags) {
+    if (rev?.map?.[t] === "Anna Müller") anna = t
+    if (rev?.map?.[t] === "Peter Schmidt") peter = t
+  }
+  return { anna, peter, path: pathTag }
+}
 
 if (phase === "a") {
   const r = await send({
-    text: "Anna Müller und Peter Schmidt sind die Kontakte. Datei: /Users/example-user/x.json",
+    text: "Anna Müller und Peter Schmidt sind die Kontakte. Datei: ${HOME_DIR}/x.json",
     opts: {},
   })
   console.log("Phase A:", r.text)
-  check("A: zwei Personen distinct", r.text.includes(T1) && r.text.includes(T2), r.text)
-  const pathTag = r.text.match(/\[URL_\d+\]/)?.[0]
-  const rev = await send({ resolve: [T1, T2, pathTag ?? ""] })
-  check("A: Anna aufloesbar", rev?.map?.[T1] === "Anna Müller", JSON.stringify(rev?.map))
-  check("A: Peter aufloesbar", rev?.map?.[T2] === "Peter Schmidt", JSON.stringify(rev?.map))
-  check("A: Pfad ist Platzhalter und aufloesbar", !!pathTag && rev?.map?.[pathTag ?? ""] === "/Users/example-user/x.json", `${pathTag} -> ${rev?.map?.[pathTag ?? ""]}`)
+  const { anna, peter, path } = await discoverTags()
+  check("A: zwei Personen distinct", !!anna && !!peter && anna !== peter, r.text)
+  const rev = await send({ resolve: [anna, peter, path ?? ""] })
+  check("A: Anna aufloesbar", rev?.map?.[anna] === "Anna Müller", JSON.stringify(rev?.map))
+  check("A: Peter aufloesbar", rev?.map?.[peter] === "Peter Schmidt", JSON.stringify(rev?.map))
+  check("A: Pfad ist Platzhalter und aufloesbar", !!path && rev?.map?.[path ?? ""] === "${HOME_DIR}/x.json", `${path} -> ${rev?.map?.[path ?? ""]}`)
+  try { writeFileSync(STATE_FILE, JSON.stringify({ anna, peter, path })) } catch {}
 } else {
   // Phase B: NUR Peter Schmidt + neuer Pfad. Erwartet: Peter Schmidt (NICHT
   // Anna Müller) -- geht nur, wenn der State ueber den Neustart kam.
-  // Wichtig: kein "Nur" davor -- GLiNER labelt "Nur Peter Schmidt" als einen
-  // kompletten Person-Span und vergaebe damit eine neue Nummer.
-  const r = await send({ text: "Kontakt Peter Schmidt, Datei /Users/example-user/y.json", opts: {} })
+  let anna = "", peter = ""
+  try {
+    if (existsSync(STATE_FILE)) {
+      const st = JSON.parse(readFileSync(STATE_FILE, "utf8"))
+      anna = st.anna ?? ""
+      peter = st.peter ?? ""
+    }
+  } catch {}
+  if (!anna || !peter) {
+    const d = await discoverTags()
+    anna = d.anna
+    peter = d.peter
+  }
+  const r = await send({ text: "Kontakt Peter Schmidt, Datei ${HOME_DIR}/y.json", opts: {} })
   console.log("Phase B:", r.text)
-  check("B: Peter Schmidt behaelt seine Nummer", r.text.includes(T2) && !r.text.includes(T1), r.text)
+  check("B: Peter Schmidt behaelt seine Nummer", !!peter && r.text.includes(peter) && !r.text.includes(anna), r.text)
 
   const pathTag = r.text.match(/\[URL_\d+\]/)?.[0]
-  const rev = await send({ resolve: [T2, pathTag ?? "", T1] })
-  check("B: Reverse-Mapping nach Neustart", rev?.map?.[T2] === "Peter Schmidt", JSON.stringify(rev?.map))
-  check("B: auch Anna Müller noch aufloesbar", rev?.map?.[T1] === "Anna Müller", JSON.stringify(rev?.map))
-  check("B: Pfad laesst sich zurueckuebersetzen", rev?.map?.[pathTag ?? ""] === "/Users/example-user/y.json", `${pathTag} -> ${rev?.map?.[pathTag ?? ""]}`)
+  const rev = await send({ resolve: [peter, pathTag ?? "", anna] })
+  check("B: Reverse-Mapping nach Neustart", rev?.map?.[peter] === "Peter Schmidt", JSON.stringify(rev?.map))
+  check("B: auch Anna Müller noch aufloesbar", rev?.map?.[anna] === "Anna Müller", JSON.stringify(rev?.map))
+  check("B: Pfad laesst sich zurueckuebersetzen", rev?.map?.[pathTag ?? ""] === "${HOME_DIR}/y.json", `${pathTag} -> ${rev?.map?.[pathTag ?? ""]}`)
 
   // Platzhalter duerfen NICHT erneut anonymisiert werden (sonst Muell-Mapping).
   const again = await send({ text: r.text, opts: {} })

@@ -1,14 +1,15 @@
 // Die Sperrliste schlaegt jede Allowlist: state.json (vollstaendige
 // Placeholder->Original-Tabelle), Logs, Sessions, Credentials.
 // Aufruf: bun test_denylist.ts
-import def0 from "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js"
+import { PLUGIN_DIST, HOME_DIR, SANDBOX } from "./helpers"
+const def0: any = await import(PLUGIN_DIST)
 
 const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
 
 let seq = 0
 async function fresh() {
   const mod: any = await import(
-    "/Users/example-user/.config/opencode/plugins/anonymizer/dist/index.js?case=" + ++seq
+    `${PLUGIN_DIST}?case=` + ++seq
   )
   const d: any = (mod as any)?.default ?? mod
   const H: Record<string, (e: any) => Promise<void> | void> = {}
@@ -42,15 +43,15 @@ const after = await fresh()
 
 // 1) Gesperrte Dateien: immer gefiltert, auch in trusted Pfaden
 const blocked = [
-  "/Users/example-user/.local/share/anonymizer/state.json",
-  "/Users/example-user/.local/share/opencode/opencode.db",
-  "/Users/example-user/.local/share/opencode/opencode.db-wal",
-  "/Users/example-user/.local/share/opencode/log/opencode.log",
-  "/Users/example-user/.local/share/opencode/storage/auth.json",
-  "/Users/example-user/.local/share/opencode/session/abc.json",
-  "/Users/example-user/.config/opencode/service.json",
-  "/Users/example-user/.config/opencode/service-t.json",
-  "/Users/example-user/.config/opencode/cli.json",
+  `${HOME_DIR}/.local/share/anonymizer/state.json`,
+  `${HOME_DIR}/.local/share/opencode/opencode.db`,
+  `${HOME_DIR}/.local/share/opencode/opencode.db-wal`,
+  `${HOME_DIR}/.local/share/opencode/log/opencode.log`,
+  `${HOME_DIR}/.local/share/opencode/storage/auth.json`,
+  `${HOME_DIR}/.local/share/opencode/session/abc.json`,
+  `${HOME_DIR}/.config/opencode/service.json`,
+  `${HOME_DIR}/.config/opencode/service-t.json`,
+  `${HOME_DIR}/.config/opencode/cli.json`,
 ]
 for (const f of blocked) {
   check(`gesperrt: ${f.split("/").slice(-2).join("/")}`, isAnon(await after(f)))
@@ -58,11 +59,11 @@ for (const f of blocked) {
 
 // 2) Nicht gesperrte Dateien in denselben trusted Ordnern bleiben roh
 const allowed = [
-  "/Users/example-user/.local/share/anonymizer/anonymizer/engine.py",
-  "/Users/example-user/.local/share/anonymizer/test_hooks.ts",
-  "/Users/example-user/.config/opencode/opencode.jsonc",
-  "/Users/example-user/.config/opencode/skills/anonymizer/SKILL.md",
-  "/Users/example-user/Projects/Scripts/etwas.sh",
+  `${HOME_DIR}/.local/share/anonymizer/anonymizer/engine.py`,
+  `${HOME_DIR}/.local/share/anonymizer/test_hooks.ts`,
+  `${SANDBOX}/trusted/roh-via-config.md`,   // nur ueber Sandbox-Config vertraut
+  `${HOME_DIR}/.config/opencode/skills/anonymizer/SKILL.md`,
+  `${SANDBOX}/roh/etwas.sh`,                 // nur ueber Sandbox-Config vertraut
 ]
 for (const f of allowed) {
   check(`erlaubt (roh): ${f.split("/").slice(-2).join("/")}`, raw(await after(f)))

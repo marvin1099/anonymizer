@@ -20,8 +20,14 @@ import sys
 import threading
 from collections import OrderedDict
 
-SOCKET_PATH = os.path.expanduser("~/.local/share/anonymizer/anon.sock")
-STATE_PATH = os.path.expanduser("~/.local/share/anonymizer/state.json")
+# Pfade aus $HOME abgeleitet, nicht eingebacken. Ueberschreibbar ueber die
+# Umgebung, damit die Tests gegen ein Sandbox-Verzeichnis laufen koennen
+# (ein gemeinsamer Socket waere sonst State-Pollution zwischen den Laeufen).
+_SOCKET_ENV = os.environ.get("ANON_SOCK")
+_STATE_ENV = os.environ.get("ANON_STATE")
+_SHARE = os.path.expanduser("~/.local/share/anonymizer")
+SOCKET_PATH = _SOCKET_ENV or os.path.join(_SHARE, "anon.sock")
+STATE_PATH = _STATE_ENV or os.path.join(_SHARE, "state.json")
 
 # In-Memory-Cache fuer bereits anonymisierte Texte (haeufig: gleiche Datei
 # wird mehrfach gelesen). Klein gehalten, damit der RAM nicht wächst.
