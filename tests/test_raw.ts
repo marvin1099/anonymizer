@@ -1,17 +1,15 @@
-// Auswege aus der Sperrliste:
-//   Default        -> gesperrte Fileen gefiltert
-//   [ANON:RAW]     -> nur die gesperrten Pfade roh, sonst bleibt alles gefiltert
-//   [ANON:OFF]        -> alles roh
-// Aufruf: bun test_raw.ts
+// Denylist overrides:
+//   Default        -> denied files are filtered.
+//   [ANON:RAW]     -> only denied paths are raw; all other content stays filtered.
+//   [ANON:OFF]     -> all content is raw.
+// Run with: bun test_raw.ts
 import { PLUGIN_DIST, DENIED as DENIED_PATH, TRUSTED_FILE } from "./helpers"
 const def0: any = await import(PLUGIN_DIST)
 
-const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
+const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 30 23125 0."
 
-// DENIED_PATH: Sperrliste, absichtlich innerhalb eines vertrauenswuerdigen
-// Ordners -- nur so zeigt der Test, dass die Sperre die Allowlist schlaegt.
-// TRUSTED_FILE: vertrauenswuerdig NUR ueber die Sandbox-Config von run.sh.
-// Frueher beide ein Benutzerpfad, der nur durch die manuelle Config passte.
+// DENIED_PATH is intentionally nested inside a trusted folder to verify that
+// the denylist takes precedence. TRUSTED_FILE is allowlisted by run.sh.
 const DENIED = DENIED_PATH
 const TRUSTED = TRUSTED_FILE
 const NORMAL = "/tmp/pii.txt"
@@ -53,7 +51,7 @@ const check = (name: string, ok: boolean, info = "") => {
 const raw = (s: string) => s === PII
 const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.includes("[")
 
-// 1) Default: Sperre gilt
+// 1) Default: denylist applies.
 {
   const p = await fresh()
   check("Default: blocked filtered", isAnon(await p.after(DENIED)))
@@ -61,10 +59,10 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   check("Default: foreign filtered", isAnon(await p.after(NORMAL)))
 }
 
-// 2) [ANON:RAW]: hebt NUR die Sperre
+// 2) [ANON:RAW] bypasses only the denylist.
 {
   const p = await fresh()
-  const t = await p.prompt("[ANON:RAW] ich editiere opencode selbst")
+  const t = await p.prompt("[ANON:RAW] I am editing OpenCode itself")
   check("RAW: blocked now raw", raw(await p.after(DENIED)))
   check("RAW: foreign file stays filtered", isAnon(await p.after(NORMAL)))
   check("RAW: trusted stays raw", raw(await p.after(TRUSTED)))
@@ -72,19 +70,19 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   check("RAW: hint toast", p.toasts.some((x) => /Blocked paths/.test(x)), p.toasts[0] ?? "-")
 }
 
-// 3) RAW endet mit der Nachricht
+// 3) RAW ends with the current request.
 {
   const p = await fresh()
-  await p.prompt("[ANON:RAW] erste Anfrage")
+  await p.prompt("[ANON:RAW] first request")
   await p.after(DENIED)
-  await p.prompt("zweite Anfrage without marker")
+  await p.prompt("second request without marker")
   check("RAW: ends on marker-less follow-up", isAnon(await p.after(DENIED)))
 }
 
-// 4) Voll-Ausweg OFF bleibt moeglich
+// 4) The full OFF override remains available.
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] alles roh")
+  await p.prompt("[ANON:OFF] leave everything raw")
   check("OFF: blocked raw", raw(await p.after(DENIED)))
   check("OFF: foreign file raw too", raw(await p.after(NORMAL)))
 }

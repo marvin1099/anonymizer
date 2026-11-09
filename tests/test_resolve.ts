@@ -1,7 +1,6 @@
 import { SOCK } from "./helpers"
-// Regressionstest fuer: "File not found: /Users/[PERSON_9]/.config/..."
-// Szenario wie im Vorfall: Plugin-Map leer (Reload) + Placeholder aus einer
-// aelteren Session -> muss ueber den Daemon aufloesbar sein.
+// Regression test for "File not found: /home/[PERSON_9]/.config/...": after a
+// plugin reload, a placeholder from an older session must resolve via daemon state.
 import { connect } from "node:net"
 
 function send(payload: unknown): Promise<any | null> {
@@ -35,8 +34,9 @@ function check(name: string, ok: boolean, info = "") {
   if (!ok) failures++
 }
 
-// --- 1. Pfad anonymisieren: was sieht das Modell? -------------------------
-const text = "Bitte die File ${HOME_DIR}/.config/opencode/opencode.jsonc öffnen, Contact Anna Müller (01701234567)."
+// --- 1. Anonymize a path: what does the model see? ------------------------
+const TEST_PATH = "/home/example-user/.config/opencode/opencode.jsonc"
+const text = `Please open the file ${TEST_PATH}, contact Anna Müller (+49 30 23125 0).`
 const resp = await send({ text, opts: {} })
 check("daemon responds", !!resp?.ok)
 const anonymized = resp.text
@@ -49,10 +49,6 @@ const rev = await send({ resolve: [tag] })
 const mapped = rev?.map?.[tag]
 check("Reverse lookup returns original", !!mapped && mapped !== tag, `${tag} -> ${mapped}`)
 
-const path = anonymized.split(" ").find((w: string) => w.includes("${HOME_DIR}"))
-const resolvedPath = path ? path.split(tag ?? "").join(mapped ?? "") : ""
-check("Path restored", resolvedPath === "${HOME_DIR}/.config/opencode/opencode.jsonc", resolvedPath)
-
 // --- 3. Alle Placeholder der Textstelle aufloesbar -------------------------
 const allTags = [...anonymized.matchAll(/\[([A-Z][A-Z_]*_\d+)\]/g)].map((m) => m[0])
 const revAll = await send({ resolve: allTags })
@@ -61,6 +57,11 @@ check(
   allTags.every((t) => !!revAll?.map?.[t]),
   allTags.map((t) => `${t}=${revAll?.map?.[t]}`).join(", "),
 )
+let restored = anonymized
+for (const [placeholder, original] of Object.entries(revAll?.map ?? {})) {
+  restored = restored.replaceAll(placeholder, original as string)
+}
+check("Path restored", restored.includes(TEST_PATH), restored)
 
 // --- 4. Swap-Semantik bleibt erhalten -------------------------------------
 const f = revAll.map["[PERSON_1]"]
@@ -74,7 +75,7 @@ if (f && g) {
   console.log("SKIP  Swap (nur ein PERSON im Text)")
 }
 
-// --- 5. Unbekannter Tag bleibt unangetastet -------------------------------
+// --- 5. Unknown tags remain untouched ------------------------------------
 const revUnknown = await send({ resolve: ["[PERSON_999]"] })
 check("Unknown tag yields nothing", !revUnknown?.map?.["[PERSON_999]"])
 

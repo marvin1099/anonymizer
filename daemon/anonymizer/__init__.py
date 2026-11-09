@@ -1,8 +1,8 @@
-"""Lokaler Anonymisierungs-Agent (DE+EN), usermode.
+"""Local anonymization agent (German and English), running in user mode.
 
-Stufe 1: deterministische Regeln + Pruefsummen
-Stufe 2: GLiNER NER (Person, Organisation, Ort, Adresse, ...)
-Stufe 3 (optional): kleines lokales LLM via Ollama
+Stage 1: deterministic rules and checksums
+Stage 2: GLiNER NER (people, organizations, locations, addresses, ...)
+Stage 3 (optional): a small local LLM via Ollama
 """
 
 __version__ = "0.1.0"

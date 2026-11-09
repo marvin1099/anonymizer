@@ -1,14 +1,14 @@
-// Marker-Semantik (Stand: OFF ist sticky, FORCED ist anfragegebunden).
-//  1) doppelte Klammern ja, einfache nein
-//  2) Position egal
-//  3) OFF bleibt ueber Folgeanfragen AN, bis [[ANON:ON]]
-//  4) FORCED gilt nur fuer die eine Anfrage
-// Aufruf: bun test_offscope.ts
-import { PLUGIN_DIST, HOME_DIR } from "./helpers"
+// Marker semantics: OFF is sticky; FORCED applies to one request.
+//  1) Single and double brackets work.
+//  2) Marker position does not matter.
+//  3) OFF stays active across requests until [[ANON:ON]].
+//  4) FORCED applies only to one request.
+// Run with: bun test_offscope.ts
+import { PLUGIN_DIST } from "./helpers"
 const def0: any = await import(PLUGIN_DIST)
 
-const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
-const TRUSTED_PATH = "${HOME_DIR}/.local/share/anonymizer/x.txt"
+const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 30 23125 0."
+const TRUSTED_PATH = "/home/example-user/.local/share/anonymizer/x.txt"
 
 let seq = 0
 async function fresh() {
@@ -49,101 +49,101 @@ const check = (name: string, ok: boolean, info = "") => {
 const raw = (s: string) => s === PII
 const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.includes("[")
 
-// 1) Syntax: einfache UND doppelte Klammern wirken
+// 1) Both single and double brackets work.
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] schau mal")
+  await p.prompt("[ANON:OFF] take a look")
   check("single bracket works too", raw(await p.after(PII)))
 }
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] schau mal")
+  await p.prompt("[ANON:OFF] take a look")
   check("double bracket works", raw(await p.after(PII)))
 }
 {
   const p = await fresh()
-  const t = await p.prompt("kannst du bitte [ANON:OFF] die File lesen?")
+  const t = await p.prompt("Can you [ANON:OFF] read the file?")
   check("position irrelevant (mid-text)", !t.includes("ANON:OFF") && raw(await p.after(PII)))
 }
 
-// 2) OFF endet bei der naechsten Nachricht OHNE Marker (kein [[ANON:ON]] noetig)
+// 2) OFF ends on the next message without a marker; [[ANON:ON]] is not needed.
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] erste Anfrage")
-  await p.after(PII)                                        // 1. Anfrage: roh
-  await p.prompt("zweite Anfrage, kein Marker")
+  await p.prompt("[ANON:OFF] first request")
+  await p.after(PII) // First request: raw.
+  await p.prompt("second request, no marker")
   const second = await p.after(PII)
   check("marker-less message re-arms", isAnon(second), second.slice(0, 40))
-  await p.prompt("dritte Anfrage, kein Marker")
+  await p.prompt("third request, no marker")
   check("stays filtered in third", isAnon(await p.after(PII)))
   check("hint toast on re-arm", p.toasts.some((t) => /re-enabled/.test(t)), p.toasts[0] ?? "-")
 }
 
-// 2b) OFF ueberlebt Folgeanfragen nur MIT erneutem Marker
+// 2b) OFF remains active across requests only when repeated.
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] erste Anfrage")
-  await p.prompt("[ANON:OFF] zweite Anfrage, Marker erneut")
-  check("OFF with repeated marker", raw(await p.after(PII)), raw(await p.after(PII)) ? "roh" : "gefiltert")
-  await p.prompt("dritte Anfrage without marker")
+  await p.prompt("[ANON:OFF] first request")
+  await p.prompt("[ANON:OFF] second request, marker repeated")
+  check("OFF with repeated marker", raw(await p.after(PII)), raw(await p.after(PII)) ? "raw" : "filtered")
+  await p.prompt("third request without marker")
   check("filtered again after", isAnon(await p.after(PII)))
 }
 
-// 2c) Warn-Toast solange OFF laeuft
+// 2c) Show a warning toast while OFF is active.
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] Anfrage")
+  await p.prompt("[ANON:OFF] request")
   check("warning toast when OFF active", p.toasts.some((t) => /Anonymization is OFF/.test(t)), p.toasts[0] ?? "-")
   check("OFF text mentions end", p.toasts.some((t) => /marker-less message/.test(t)))
 }
 
-// 2d) [[ANON:ON]] schaltet auch sofort zurueck
+// 2d) [[ANON:ON]] immediately re-enables filtering.
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] mach was")
-  const t = await p.prompt("[ANON:ON] stopp, wieder filtern")
+  await p.prompt("[ANON:OFF] do something")
+  const t = await p.prompt("[ANON:ON] stop, filter again")
   check("ON marker removed", !t.includes("ANON"), JSON.stringify(t))
   check("ON switches in same session", isAnon(await p.after(PII)))
 }
 
-// 3) Sticky ueberlebt viele Tool-Aufrufe (kein Token-Budget mehr)
+// 3) Sticky OFF survives many tool calls (no token budget).
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] lange Anfrage")
+  await p.prompt("[ANON:OFF] long request")
   let stillRaw = true
   for (let i = 0; i < 30; i++) if (!raw(await p.after(PII))) stillRaw = false
   check("OFF lasts 30 tool calls", stillRaw, "no expiry after 20")
 }
 
-// 4) FORCED bleibt anfragegebunden
+// 4) FORCED applies to one request.
 {
   const p = await fresh()
-  await p.prompt("[ANON:FORCED] force-Anfrage")
+  await p.prompt("[ANON:FORCED] force request")
   check("FORCED filters internal path", isAnon(await p.after(PII, { file_path: TRUSTED_PATH })))
-  await p.prompt("naechste Anfrage without marker")
+  await p.prompt("next request without marker")
   const t2 = await p.after(PII, { file_path: TRUSTED_PATH })
-  check("FORCED ends with request", raw(t2), raw(t2) ? "intern wieder frei" : "bleibt gefiltert -> Ueberlauf")
+  check("FORCED ends with request", raw(t2), raw(t2) ? "trusted path is raw again" : "still filtered -> stale force")
 }
 {
   const p = await fresh()
-  await p.prompt("[ANON:FORCE] ohne D")
+  await p.prompt("[ANON:FORCE] without D")
   check("FORCE without D works", isAnon(await p.after(PII, { file_path: TRUSTED_PATH })))
 }
 
-// 5) OFF schlaegt FORCED und umgekehrt nicht
+// 5) OFF takes precedence over FORCED, but not vice versa.
 {
   const p = await fresh()
   await p.prompt("[ANON:FORCED] force")
-  await p.prompt("[ANON:OFF] aus")
+  await p.prompt("[ANON:OFF] off")
   check("OFF wins even if FORCED before", raw(await p.after(PII, { file_path: TRUSTED_PATH })))
 }
 
-// 6) Neustart-Semantik: Plugin-Neustart = Filter wieder aktiv (fail-safe)
+// 6) Restarting the plugin re-enables filtering (fail-safe).
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] aus")
-  check("OFF aktiv", raw(await p.after(PII)))
-  const p2 = await fresh() // simuliert Plugin-Reload: frische Instanz
+  await p.prompt("[ANON:OFF] off")
+  check("OFF active", raw(await p.after(PII)))
+  const p2 = await fresh() // Simulate a plugin reload with a fresh instance.
   check("filtered again after plugin restart (fail-safe)", isAnon(await p2.after(PII)))
 }
 

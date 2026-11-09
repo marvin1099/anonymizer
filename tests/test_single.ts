@@ -1,10 +1,10 @@
 // Einmal-Marker: [ANON:S-OFF] / [ANON:S-FORCE] und einfache Klammern.
 // Aufruf: bun test_single.ts
-import { PLUGIN_DIST, HOME_DIR } from "./helpers"
+import { PLUGIN_DIST } from "./helpers"
 const def0: any = await import(PLUGIN_DIST)
 
-const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
-const TRUSTED = { file_path: "${HOME_DIR}/.local/share/anonymizer/x.txt" }
+const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 30 23125 0."
+const TRUSTED = { file_path: "/home/example-user/.local/share/anonymizer/x.txt" }
 const EXT = { file_path: "/tmp/x.txt" }
 
 let seq = 0
@@ -54,92 +54,91 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
 }
 {
   const p = await fresh()
-  const t = await p.prompt("[[ANON:S-OFF]] lies die File")
+  const t = await p.prompt("[[ANON:S-OFF]] read the file")
   check("S-OFF: double bracket is literal", isAnon(await p.after(PII)))
-  check("S-OFF: double brackets collapse", t === "[ANON:S-OFF] lies die File", JSON.stringify(t))
+  check("S-OFF: double brackets collapse", t === "[ANON:S-OFF] read the file", JSON.stringify(t))
 }
 
-// 2) S-FORCE: genau EIN Tool-Ergebnis filtern, auch auf internem Pfad
+// 2) S-FORCE filters exactly one tool result, even on a trusted path.
 {
   const p = await fresh()
-  const t = await p.prompt("[ANON:S-FORCE] lies das Skript")
+  const t = await p.prompt("[ANON:S-FORCE] read the script")
   check("S-FORCE: internal result filtered", isAnon(await p.after(PII, TRUSTED)))
   check("S-FORCE: internal free after", raw(await p.after(PII, TRUSTED)))
   check("S-FORCE: stays visible", t.includes("ANON:S-FORCE"), JSON.stringify(t))
 }
 
-// 3) Reihenfolge: S-OFF vor FORCED, global OFF gewinnt alles
+// 3) S-OFF precedes FORCED; global OFF takes precedence over both.
 {
   const p = await fresh()
-  await p.prompt("[ANON:S-OFF] und [ANON:FORCED] beides")
+  await p.prompt("[ANON:S-OFF] and [ANON:FORCED] together")
   check("S-OFF wins over FORCED", raw(await p.after(PII, TRUSTED)))
-  // FORCED hatte noch Budget: es deckte die naechste Ausgabe ab, die S-OFF
-  // verbraucht hat. Danach ist wieder Default.
+  // FORCED still applies to the next result, after S-OFF consumes the first.
+  // The default state resumes afterward.
   check("FORCED budget covered follow-up", isAnon(await p.after(PII, TRUSTED)))
   check("then default again (internal free)", raw(await p.after(PII, TRUSTED)))
 }
 {
   const p = await fresh()
-  await p.prompt("[ANON:OFF] und [[ANON:S-FORCE]] beides")
+  await p.prompt("[ANON:OFF] and [[ANON:S-FORCE]] together")
   check("OFF wins over S-FORCE same message", raw(await p.after(PII, TRUSTED)))
 }
 {
-  // OFF bleibt nur erhalten, wenn die naechste Nachricht wieder OFF traegt.
+  // OFF remains active only if the next message repeats the OFF marker.
   const p = await fresh()
-  await p.prompt("[ANON:OFF] global aus")
-  await p.prompt("[ANON:S-FORCE] nur einmal filtern")
+  await p.prompt("[ANON:OFF] global off")
+  await p.prompt("[ANON:S-FORCE] filter only once")
   check("OFF ends when next message has a DIFFERENT marker",
-    isAnon(await p.after(PII, TRUSTED)), "S-FORCE gilt, OFF ist zurueckgesetzt")
+    isAnon(await p.after(PII, TRUSTED)), "S-FORCE applies; OFF is reset")
 }
 
-// 4) Verbraucht sich ungenutzt beim naechsten Nachricht (fail-safe)
+// 4) An unused one-shot marker expires on the next message (fail-safe).
 {
   const p = await fresh()
-  await p.prompt("[ANON:S-OFF] kein Tool benutzt")
-  await p.prompt("naechste Anfrage")
+  await p.prompt("[ANON:S-OFF] no tool used")
+  await p.prompt("next request")
   check("unused S-OFF expires", isAnon(await p.after(PII)))
 }
 
-// 5) Einfache Klammern fuer die uebrigen Marker, werden entfernt
+// 5) Single-bracket marker forms are removed from the message.
 {
   const p = await fresh()
-  const t = await p.prompt("[ANON:OFF] schau mal")
+  const t = await p.prompt("[ANON:OFF] take a look")
   check("simple OFF works", raw(await p.after(PII)))
   check("simple OFF removed from message", !t.includes("ANON"), JSON.stringify(t))
 }
 {
   const p = await fresh()
-  const t = await p.prompt("[ANON:FORCE] intern filtern")
+  const t = await p.prompt("[ANON:FORCE] filter the trusted path")
   check("simple FORCE works", isAnon(await p.after(PII, TRUSTED)))
   check("simple FORCE removed", !t.includes("ANON"), JSON.stringify(t))
 }
 {
   const p = await fresh()
-  const t = await p.prompt("[ANON:ON] wieder an")
+  const t = await p.prompt("[ANON:ON] turn it on again")
   check("simple ON removed", !t.includes("ANON"), JSON.stringify(t))
   check("nothing catches normal ON", isAnon(await p.after(PII)))
 }
 
-// 6) Doppelte Klammern kollabieren. Erwartungswert wird aus chr(91) gebaut:
-//    ein literales [PERSON_1] in dieser File waere beim Schreiben selbst
-//    kollabiert worden.
+// 6) Double brackets collapse. Build the expected value from character codes
+//    so a literal [PERSON_1] in this source file cannot be rewritten.
 {
   const p = await fresh()
   const S = String.fromCharCode(91)
   const C = String.fromCharCode(93)
-  const input = `vergleiche ${S}${S}PERSON_1${C}${C} und ${S}${S}EMAIL_2${C}${C} bitte`
-  const want = `vergleiche ${S}PERSON_1${C} und ${S}EMAIL_2${C} bitte`
+  const input = `compare ${S}${S}PERSON_1${C}${C} and ${S}${S}EMAIL_2${C}${C} please`
+  const want = `compare ${S}PERSON_1${C} and ${S}EMAIL_2${C} please`
   const t = await p.prompt(input)
   check("double brackets collapse", t === want, `IN=${JSON.stringify(input)} OUT=${JSON.stringify(t)}`)
-  // fuer einen literalen Text auf der Platte braucht es dreifache Klammern
-  const t3 = await p.prompt(`literal ${S}${S}${S}PERSON_1${C}${C}${C} bitte`)
-  check("triple brackets stay", t3 === `literal ${S}${S}PERSON_1${C}${C} bitte`, JSON.stringify(t3))
+  // Triple brackets are needed to write a double-bracket literal to disk.
+  const t3 = await p.prompt(`literal ${S}${S}${S}PERSON_1${C}${C}${C} please`)
+  check("triple brackets stay", t3 === `literal ${S}${S}PERSON_1${C}${C} please`, JSON.stringify(t3))
 }
 
-// 7) Unbekannter Marker: bleibt stehen + Warnung
+// 7) Unknown markers remain in the text and produce a warning.
 {
   const p = await fresh()
-  const t = await p.prompt("[ANON:FOO] was ist das")
+  const t = await p.prompt("[ANON:FOO] what is this")
   check("unknown marker stays in text", t.includes("ANON:FOO"), JSON.stringify(t))
   check("unknown marker produces warning", p.toasts.some((x) => /Unknown marker/.test(x)), p.toasts[0] ?? "-")
 }

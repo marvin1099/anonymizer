@@ -1,34 +1,28 @@
-// Trusted-Pfade aus anonymizer.json -- HEISST: aus EIGENER Test-Config.
+// Trusted paths come from an isolated test config.
 //
-// Frueher schrieb dieser Test in ~/.config/opencode/anonymizer.json und
-// stellte den Inhalt im finally-Block wieder her. Das ist genau die Kopplung,
-// die diesen Test nicht universell macht:
-//   * Abbruch mid-test (oder Crash in einem Signal-Handler) zerstoerte die
-//     echten Pfade des Nutzers,
-//   * der Test bestand nur, solange die manuelle Config zufaellig passte,
-//   * zwei Tests gleichzeitig liefen sich gegenseitig ueber den Fuss.
+// This test used to overwrite ~/.config/opencode/anonymizer.json and restore
+// it in a finally block. That made it machine-specific and unsafe:
+//   * An interruption could destroy the user's real paths.
+//   * The test only passed when the manual config happened to match.
+//   * Concurrent test runs could interfere with each other.
 //
-// Jetzt: eigene Config-File in der Sandbox, per ANON_CONFIG gemeldet, bevor
-// das Plugin das erste Mal geladen wird (TRUSTED_CONFIG wird beim Import der
-// Modul-File aus der Umgebung gelesen). Die echte Konfiguration wird nie
-// geoeffnet, nie geschrieben, nie wiederhergestellt -- sie wird ignoriert.
+// Now it creates a private sandbox config and sets ANON_CONFIG before loading
+// the plugin. The user's real config is never opened or modified.
 //
-// Aufruf: ./run.sh test_trusted.ts
+// Run with: ./run.sh test_trusted.ts
 import { writeFileSync, rmSync, existsSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { PLUGIN_DIST, SANDBOX, HOME_DIR, BUILTIN_RAW, TRUSTED_DIR } from "./helpers"
 const def0: any = await import(PLUGIN_DIST)
 
-// EIGENE Config -- unabhaengig von der Sandbox-Config, die run.sh anlegt.
-// Darin steht am Ende nur, was DIESE Suite braucht.
+// Separate config for this suite, independent of the one created by run.sh.
 const OWN_CONFIG = `${SANDBOX}/config/trusted-case.json`
 const PREVIOUS_CONFIG = process.env.ANON_CONFIG
-process.env.ANON_CONFIG = OWN_CONFIG // VOR dem ersten fresh(): siehe Header
+process.env.ANON_CONFIG = OWN_CONFIG // Set before fresh(); see the header.
 
-const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
-// "fremd" = nirgends eingetragen. Der Ordnername traegt keine Entity, der
-// PATH bleibt also literal -- was nichts ausmacht, denn hier geht es um den
-// INHALT (PII darin wird gefiltert, solange der Pfad nicht vertrauenswuerdig).
+const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 30 23125 0."
+// This untrusted path contains no entity, so its name stays literal. The test
+// checks that content is filtered when the path is not trusted.
 const OTHER = `${SANDBOX}/anderswo/etwas.txt`
 
 function restoreEnv(): void {
@@ -74,35 +68,34 @@ async function fresh() {
   }
 }
 
-// Schreibt ausschliesslich in die EIGENE File (Legende -> Testfaelle).
+// Write only to this suite's own config file.
 function setConfig(json: string): void {
   mkdirSync(dirname(OWN_CONFIG), { recursive: true })
   writeFileSync(OWN_CONFIG, json)
 }
 
 try {
-  // 1) Config mit einem Projektordner
-  setConfig(JSON.stringify({ trustedPaths: [`${SANDBOX}/mein-projekt`] }))
+  // 1) Config with one project directory.
+  setConfig(JSON.stringify({ trustedPaths: [`${SANDBOX}/my-project`] }))
   {
     const after = await fresh()
-    const p = `${SANDBOX}/mein-projekt/notiz.txt`
+    const p = `${SANDBOX}/my-project/note.txt`
     check("Config path is free (read)", raw(await after({ file_path: p })),
       (await after({ file_path: p })).slice(0, 40))
     check("other path stays filtered", isAnon(await after({ file_path: OTHER })))
     check("Shell always filtered",
-      isAnon(await after({ command: `cat ${SANDBOX}/mein-projekt/notiz.txt` }, "shell")))
+      isAnon(await after({ command: `cat ${SANDBOX}/my-project/note.txt` }, "shell")))
   }
 
-  // 2) Hot-Reload: Pfad wird entfernt -> wieder filtern, ohne Neustart.
-  //    (trustedPaths() liest die File bei mtime-Aenderung neu.)
+  // 2) Removing a path filters it again without a restart.
   setConfig(JSON.stringify({ trustedPaths: [] }))
   {
     const after = await fresh()
     check("removed path filtered again",
-      isAnon(await after({ file_path: `${SANDBOX}/mein-projekt/notiz.txt` })))
+      isAnon(await after({ file_path: `${SANDBOX}/my-project/note.txt` })))
   }
 
-  // 3) Kaputte Config -> eingebaute Pfade gelten weiter, kein Absturz
+  // 3) A broken config does not crash or disable built-in trusted paths.
   setConfig("{ kaputt: ")
   {
     const after = await fresh()
@@ -110,8 +103,7 @@ try {
     check("broken config -> external paths filtered", isAnon(await after({ file_path: OTHER })))
   }
 
-  // 4) ~/Praefix und Slash-Formen. "~" muss auf DIESEN Rechner expandieren,
-  //    deshalb HOME_DIR und kein eingebauter Benutzername.
+  // 4) Expand `~` to this runtime's home directory and handle slash variants.
   setConfig(JSON.stringify({
     trustedPaths: ["~/.claude-trust-dir/", `${SANDBOX}/anders`, `${HOME_DIR}/Notes/privat`],
   }))
@@ -127,14 +119,13 @@ try {
       isAnon(await after({ file_path: `${SANDBOX}/andersgelogen/x.md` })))
   }
 
-  // 5) Der eingetragene Ordner traegt die Allowlist, die Sperrliste schlaegt
-  //    sie: state.json innerhalb eines vertrauenswuerdigen Ordners bleibt roh
-  //    NUR mit [ANON:RAW], nie ohne.
+  // 5) Denylist entries override the allowlist: state.json is only raw with
+  //    [ANON:RAW], even when it is inside a trusted folder.
   setConfig(JSON.stringify({ trustedPaths: [TRUSTED_DIR] }))
   {
     const after = await fresh()
     const denied = `${TRUSTED_DIR}/.local/share/anonymizer/state.json`
-    check("denylist beats allowlist (gefiltert)", isAnon(await after({ file_path: denied })))
+    check("denylist beats allowlist (filtered)", isAnon(await after({ file_path: denied })))
   }
 } finally {
   cleanup()

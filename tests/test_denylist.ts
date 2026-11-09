@@ -1,10 +1,11 @@
-// Die Sperrliste schlaegt jede Allowlist: state.json (vollstaendige
-// Placeholder->Original-Tabelle), Logs, Sessions, Credentials.
-// Aufruf: bun test_denylist.ts
-import { PLUGIN_DIST, HOME_DIR, SANDBOX } from "./helpers"
+// The denylist overrides every allowlist, protecting state, logs, sessions,
+// and credentials.
+// Run with: bun test_denylist.ts
+import { PLUGIN_DIST, SANDBOX } from "./helpers"
 const def0: any = await import(PLUGIN_DIST)
 
-const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
+const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 30 23125 0."
+const TEST_HOME = "/home/example-user"
 
 let seq = 0
 async function fresh() {
@@ -41,29 +42,29 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
 
 const after = await fresh()
 
-// 1) Gesperrte Fileen: immer gefiltert, auch in trusted Pfaden
+// 1) Denied files are always filtered, even under trusted paths.
 const blocked = [
-  `${HOME_DIR}/.local/share/anonymizer/state.json`,
-  `${HOME_DIR}/.local/share/opencode/opencode.db`,
-  `${HOME_DIR}/.local/share/opencode/opencode.db-wal`,
-  `${HOME_DIR}/.local/share/opencode/log/opencode.log`,
-  `${HOME_DIR}/.local/share/opencode/storage/auth.json`,
-  `${HOME_DIR}/.local/share/opencode/session/abc.json`,
-  `${HOME_DIR}/.config/opencode/service.json`,
-  `${HOME_DIR}/.config/opencode/service-t.json`,
-  `${HOME_DIR}/.config/opencode/cli.json`,
+  `${TEST_HOME}/.local/share/anonymizer/state.json`,
+  `${TEST_HOME}/.local/share/opencode/opencode.db`,
+  `${TEST_HOME}/.local/share/opencode/opencode.db-wal`,
+  `${TEST_HOME}/.local/share/opencode/log/opencode.log`,
+  `${TEST_HOME}/.local/share/opencode/storage/auth.json`,
+  `${TEST_HOME}/.local/share/opencode/session/abc.json`,
+  `${TEST_HOME}/.config/opencode/service.json`,
+  `${TEST_HOME}/.config/opencode/service-t.json`,
+  `${TEST_HOME}/.config/opencode/cli.json`,
 ]
 for (const f of blocked) {
   check(`blocked: ${f.split("/").slice(-2).join("/")}`, isAnon(await after(f)))
 }
 
-// 2) Nicht gesperrte Fileen in denselben trusted Ordnern bleiben roh
+// 2) Non-denied files in the same trusted folders remain raw.
 const allowed = [
-  `${HOME_DIR}/.local/share/anonymizer/anonymizer/engine.py`,
-  `${HOME_DIR}/.local/share/anonymizer/test_hooks.ts`,
-  `${SANDBOX}/trusted/roh-via-config.md`,   // nur ueber Sandbox-Config vertraut
-  `${HOME_DIR}/.config/opencode/skills/anonymizer/SKILL.md`,
-  `${SANDBOX}/roh/etwas.sh`,                 // nur ueber Sandbox-Config vertraut
+  `${TEST_HOME}/.local/share/anonymizer/anonymizer/engine.py`,
+  `${TEST_HOME}/.local/share/anonymizer/test_hooks.ts`,
+  `${SANDBOX}/trusted/raw-via-config.md`,
+  `${TEST_HOME}/.config/opencode/skills/anonymizer/SKILL.md`,
+  `${SANDBOX}/roh/example.sh`,
 ]
 for (const f of allowed) {
   check(`allowed (raw): ${f.split("/").slice(-2).join("/")}`, raw(await after(f)))

@@ -1,9 +1,7 @@
 import { SOCK, SANDBOX } from "./helpers"
-// Beweis: Numbering + Reverse-Mapping ueberleben einen Daemon-Neustart.
-// WICHTIG: Alle Platzhalter-Literale in dieser File sind als [[PERSON_x]]
-// geschrieben -- der Plugin-Write-Path loest "[PERSON_1]" NICHT auf, es
-// schreibt literal "Anna Müller" auf die Platte. Sonst wuerde diese File
-// beim Speichern ihre eigenen Marker durch echte Namen ersetzen.
+// Verify that numbering and reverse mappings survive a daemon restart.
+// Placeholder literals use [[PERSON_x]] because the plugin resolves [PERSON_1]
+// in write inputs. This keeps the fixture's placeholders literal on disk.
 import { connect } from "node:net"
 import { writeFileSync, readFileSync, existsSync } from "node:fs"
 
@@ -39,11 +37,12 @@ const check = (name: string, ok: boolean, info = "") => {
 }
 
 const phase = process.argv[2] ?? "a"
+const TEST_HOME = "/home/example-user"
 const STATE_FILE = `${SANDBOX}/share/persist_a.json`
 
 async function discoverTags(): Promise<{ anna: string; peter: string; path: string }> {
   const r = await send({
-    text: "Anna Müller und Peter Schmidt sind die Contacte. File: ${HOME_DIR}/x.json",
+    text: `Anna Müller and Peter Schmidt are the contacts. File: ${TEST_HOME}/x.json`,
     opts: {},
   })
   const pathTag = r.text.match(/\[URL_\d+\]/)?.[0] ?? ""
@@ -60,7 +59,7 @@ async function discoverTags(): Promise<{ anna: string; peter: string; path: stri
 
 if (phase === "a") {
   const r = await send({
-    text: "Anna Müller und Peter Schmidt sind die Contacte. File: ${HOME_DIR}/x.json",
+    text: `Anna Müller and Peter Schmidt are the contacts. File: ${TEST_HOME}/x.json`,
     opts: {},
   })
   console.log("Phase A:", r.text)
@@ -69,11 +68,11 @@ if (phase === "a") {
   const rev = await send({ resolve: [anna, peter, path ?? ""] })
   check("A: Anna resolvable", rev?.map?.[anna] === "Anna Müller", JSON.stringify(rev?.map))
   check("A: Peter resolvable", rev?.map?.[peter] === "Peter Schmidt", JSON.stringify(rev?.map))
-  check("A: Path is placeholder and resolvable", !!path && rev?.map?.[path ?? ""] === "${HOME_DIR}/x.json", `${path} -> ${rev?.map?.[path ?? ""]}`)
+  check("A: Path is placeholder and resolvable", !!path && rev?.map?.[path ?? ""] === `${TEST_HOME}/x.json`, `${path} -> ${rev?.map?.[path ?? ""]}`)
   try { writeFileSync(STATE_FILE, JSON.stringify({ anna, peter, path })) } catch {}
 } else {
-  // Phase B: NUR Peter Schmidt + neuer Pfad. Erwartet: Peter Schmidt (NICHT
-  // Anna Müller) -- geht nur, wenn der State ueber den Neustart kam.
+  // Phase B contains only Peter Schmidt and a new path. The same placeholder
+  // must be retained from persisted daemon state.
   let anna = "", peter = ""
   try {
     if (existsSync(STATE_FILE)) {
@@ -87,7 +86,7 @@ if (phase === "a") {
     anna = d.anna
     peter = d.peter
   }
-  const r = await send({ text: "Contact Peter Schmidt, File ${HOME_DIR}/y.json", opts: {} })
+  const r = await send({ text: `Contact Peter Schmidt, File ${TEST_HOME}/y.json`, opts: {} })
   console.log("Phase B:", r.text)
   check("B: Peter Schmidt keeps his number", !!peter && r.text.includes(peter) && !r.text.includes(anna), r.text)
 
@@ -95,9 +94,9 @@ if (phase === "a") {
   const rev = await send({ resolve: [peter, pathTag ?? "", anna] })
   check("B: Reverse mapping after restart", rev?.map?.[peter] === "Peter Schmidt", JSON.stringify(rev?.map))
   check("B: Anna Müller still resolvable", rev?.map?.[anna] === "Anna Müller", JSON.stringify(rev?.map))
-  check("B: Path can be translated back", rev?.map?.[pathTag ?? ""] === "${HOME_DIR}/y.json", `${pathTag} -> ${rev?.map?.[pathTag ?? ""]}`)
+  check("B: Path can be translated back", rev?.map?.[pathTag ?? ""] === `${TEST_HOME}/y.json`, `${pathTag} -> ${rev?.map?.[pathTag ?? ""]}`)
 
-  // Platzhalter duerfen NICHT erneut anonymisiert werden (sonst Muell-Mapping).
+  // Existing placeholders must not be anonymized again.
   const again = await send({ text: r.text, opts: {} })
   check("B: Placeholders stay unchanged", again.text === r.text, `${r.text}  ->  ${again.text}`)
 }

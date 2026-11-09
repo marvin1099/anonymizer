@@ -1,7 +1,7 @@
-"""Stufe 1: deterministische Erkennung von strukturierten Identifikatoren.
+"""Stage 1: deterministic detection of structured identifiers.
 
-Deutschland/EN-Fokus. Wo moeglich mit Pruefsumme (IBAN mod-97, Luhn,
-ISO 7064 fuer die deutsche Steuer-ID).
+Focused on Germany and English-language data. Checksum validation is used
+where available (IBAN mod-97, Luhn, ISO 7064 for German tax IDs).
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def luhn_valid(raw: str) -> bool:
 
 
 def de_taxid_valid(raw: str) -> bool:
-    """Deutsche Steuer-Identifikationsnummer (IdNr), ISO 7064 MOD 11,10."""
+    """Validate a German tax identification number (IdNr), ISO 7064 MOD 11,10."""
     s = raw.replace(" ", "")
     if not re.fullmatch(r"\d{11}", s) or s[0] == "0":
         return False
@@ -59,16 +59,13 @@ def de_taxid_valid(raw: str) -> bool:
     return check == int(s[-1])
 
 
-# Regel-Set bewusst KLEIN gehalten: die Erkennung macht primaer das Modell
-# (GLiNER, ner.py). Hier steht nur, was das Modell nachweislich nicht leistet:
-#   * Pruefsummen-Formate (IBAN mod-97, Luhn, ISO 7064) -- das kann kein NER
-#   * exakt deterministische Formate (E-Mail, IP, MAC -- das Modell verwechselt
-#     MAC mit IP und laesst sie manchmal weg)
-#   * nackte 11-15-stellige Ziffernbloecke (internationale Mobilnummer ohne
-#     Trenner -- im dichten CSV verliert das Modell sie haeufig)
-# Bewusst KEINE laenderspezifischen Telefon-/Format-Physiognomien mehr: das
-# war Handpflege und erzeugte False Positives. Das Modell deckt DE/UK/US-Telefon-
-# formate selbst ab.
+# Keep the rule set intentionally small: GLiNER (ner.py) handles most entity
+# detection. This file covers formats that NER does not reliably detect:
+#   * Checksummed values (IBAN mod-97, Luhn, ISO 7064)
+#   * Strict formats (email, IP, MAC; NER can confuse MAC and IP addresses)
+#   * Bare 11-15 digit strings (international phone numbers without separators)
+# Avoid country-specific phone-format rules: they require manual upkeep and
+# create false positives. The model handles German, UK, and US phone formats.
 PATTERNS: list[tuple[str, re.Pattern, object]] = [
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"), None),
     ("IBAN", re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}[ ]?[A-Z0-9]{1,4}\b"), iban_valid),
@@ -77,18 +74,17 @@ PATTERNS: list[tuple[str, re.Pattern, object]] = [
     ("IP_ADDRESS", re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"), None),
     ("MAC_ADDRESS", re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b"), None),
     ("PHONE", re.compile(r"\b\d{11,15}\b"), None),
-    # Login-Kennungen der Firm-IT: "e.mertens", "(a.barazi)", "example-user".
-    # Ein Zeichen Praefix + Punkt + Nachname. Das ist ein FORMAT, keine
-    # Namenserkennung -- GLiNER erkennt diese Tokens hinter Zeitstempeln in
-    # Klammern nur unzuellaessig (gemessen: 5 von 12 im CMDB-Export).
-    # Praefix bewusst genau EIN Zeichen: "io.netty" oder "app.min" sollen nicht
-    # matchen. Lookbehind schliesst Pfade aus ("/etc/x.conf" bleibt lesbar),
-    # weil Pfade fuer das Reverse-Mapping exakt bleiben muessen.
+    # Corporate login format, e.g. "e.mertens" or "(a.barazi)": one initial,
+    # a dot, and a surname. This is a format, not name recognition. GLiNER can
+    # miss these tokens in parentheses after timestamps. The one-character
+    # prefix avoids matching strings such as "io.netty" or "app.min". The
+    # lookbehind excludes paths ("/etc/x.conf"), which must remain exact for
+    # reverse mapping.
     ("USERNAME", re.compile(r"(?<![A-Za-z0-9./_-])[a-z]\.[a-z]{3,14}(?![a-z0-9])"), None),
 ]
 
-# Aktuell ist kein Label standardmaessig abgeschaltet (die fehleranfaelligen
-# Datum/PLZ-Muster wurden entfernt).
+# No labels are disabled by default; unreliable date and postal-code rules
+# were removed.
 DEFAULT_OFF: set[str] = set()
 
 

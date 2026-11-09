@@ -4,9 +4,8 @@ import { spawn } from "node:child_process"
 import { readFileSync, statSync } from "node:fs"
 import { homedir } from "node:os"
 
-// Pfade aus $HOME abgeleitet, nicht eingebacken -- sonst waere das Repo nur
-// auf einem Rechner nutzbar. Ueberschreibbar ueber die Umgebung, damit die
-// Tests gegen ein Sandbox-Verzeichnis laufen koennen.
+// Derive paths from $HOME rather than hard-coding a developer-specific path.
+// Environment variables can override them so tests can use an isolated sandbox.
 const HOME = homedir()
 const ANON = process.env.ANON_BIN ?? `${HOME}/.local/bin/anon`
 const SOCK = process.env.ANON_SOCK ?? `${HOME}/.local/share/anonymizer/anon.sock`
@@ -17,16 +16,12 @@ const TRUSTED_BUILTIN = [
   "/.local/share/anonymizer/",
   "/.config/opencode/plugins/",
   "/.config/opencode/skills/",
-  // die Konfiguration selbst: sonst werden die Pfade beim Lesen zu Platzhaltern
+  // Keep the config file readable so its paths are not anonymized.
   "/.config/opencode/anonymizer.json",
 ]
 
 // The user adds their own exempt folders (own project dirs, notes, …) here:
-//   ~/.config/opencode/anonymizer.json  ->  { "trustedPaths": ["~/Projects/mein-projekt"] }
-// Re-read whenever the file changes, so adding a folder needs no restart.
-// WARNING: everything under a trusted path is passed through UNFILTERED.
-// The user adds their own exempt folders (own project dirs, notes, …) here:
-//   ~/.config/opencode/anonymizer.json  ->  { "trustedPaths": ["~/Projects/mein-projekt"] }
+//   ~/.config/opencode/anonymizer.json  ->  { "trustedPaths": ["~/Projects/my-project"] }
 // Re-read whenever the file changes, so adding a folder needs no restart.
 // WARNING: everything under a trusted path is passed through UNFILTERED.
 const TRUSTED_CONFIG = process.env.ANON_CONFIG ?? `${HOME}/.config/opencode/anonymizer.json`
@@ -48,17 +43,16 @@ function trustedPaths(): string[] {
       trustedCache = { mtime: st.mtimeMs, extra: list.map(normalizeTrusted).filter(Boolean) }
     }
   } catch {
-    // kaputte/fehlende Config -> Cache zuruecksetzen (fail-closed), damit
-    // eine alte Allowlist nicht bis zum Neustart haelt.
+    // Missing or invalid config: clear the cache (fail closed) so a stale
+    // allowlist cannot remain active until the next restart.
     trustedCache = { mtime: 0, extra: [] }
   }
   return [...TRUSTED_BUILTIN, ...trustedCache.extra]
 }
 
-// Vertrauenswürdige Pfade dürfen NIE diese Dateien enthalten, egal wie weit
-// der Nutzer die Liste ausweitet: das sind Credentials, Gesprächsverläufe und
-// vor allem state.json -- die vollstaendige Placeholder->Original-Tabelle.
-// Ein allowlist-Pfad darf diese Sperre niemals aushebeln.
+// These files are never trusted, no matter how broadly the user extends the
+// allowlist. They include credentials, conversation history, and state.json,
+// which contains the complete placeholder-to-original mapping.
 const NEVER_TRUSTED = [
   "/.local/share/anonymizer/state.json",
   "/.local/share/anonymizer/anon.sock",
@@ -98,22 +92,21 @@ const FILE_TOOLS = new Set(["read", "write", "edit", "multiedit", "patch", "note
 // see that they typed one. The others are extracted before the model sees them.
 // Plain booleans/counters, no token budget: a budget erodes after ~20 tool
 // results and silently re-arms filtering in the middle of a long task.
-// Marker-Zustände. `strip` = aus der Nachricht entfernen (vor dem Modell).
-// WICHTIG: Nur EINFACHE Klammern loesen aus. Die doppelte Form
-// "[[ANON:OFF]]" ist nach der Escape-Konvention literaler Text: sie bleibt
-// stehen (und kollabiert am Ende zu "[ANON:OFF]"), schaltet aber nichts.
-// (?<!\[) verhindert, dass die Regel im Inneren von "[[...]]" greift.
+// Marker states. `strip` means remove the marker before the model sees it.
+// Only single brackets activate markers. Double brackets are escaped literal
+// text: they remain visible (and collapse to one bracket pair) without effect.
+// The negative lookbehind prevents matching inside `[[...]]`.
 const MARKERS: Array<{ re: RegExp; strip: boolean }> = [
-  { re: /(?<!\[)\[ANON:S-OFF\](?!\])/g, strip: false }, // sichtbar: genau 1 Tool-Ergebnis roh
-  { re: /(?<!\[)\[ANON:S-FORCE\](?!\])/g, strip: false }, // sichtbar: genau 1 Tool-Ergebnis filtern
-  { re: /(?<!\[)\[ANON:RAW\](?!\])/g, strip: false }, // sichtbar: gesperrte Pfade lesbar
+  { re: /(?<!\[)\[ANON:S-OFF\](?!\])/g, strip: false }, // Keep exactly one tool result raw.
+  { re: /(?<!\[)\[ANON:S-FORCE\](?!\])/g, strip: false }, // Filter exactly one tool result.
+  { re: /(?<!\[)\[ANON:RAW\](?!\])/g, strip: false }, // Make blocked paths readable.
   { re: /(?<!\[)\[ANON:OFF\](?!\])/g, strip: true },
   { re: /(?<!\[)\[ANON:ON\](?!\])/g, strip: true },
   { re: /(?<!\[)\[ANON:FORCE(D)?\](?!\])/g, strip: true },
 ]
 
 let anonOff = false // sticky user switch: no filtering until the next marker-less message
-let rawPaths = false // [ANON:RAW]: nur die gesperrten Pfade werden lesbar
+let rawPaths = false // [ANON:RAW]: only blocked paths are readable.
 let forceTokens = 0 // consume one per tool event -> anonymize even trusted paths
 let singleOff = 0 // [[ANON:S-OFF]]: raw for this many upcoming tool results
 let singleForce = 0 // [[ANON:S-FORCE]]: filter for this many upcoming tool results
@@ -132,7 +125,7 @@ function toast(
     const p = tui?.tui?.showToast?.({ body: { title, message, variant, duration } })
     if (p && typeof p.catch === "function") p.catch(() => {})
   } catch {
-    /* kein TUI (headless) -> stumm */
+    /* No TUI (headless mode): do nothing. */
   }
 }
 
@@ -147,15 +140,14 @@ function stringifyInput(input: unknown): string {
   }
 }
 
-/** "trusted"  -> Datei-Tool in einem Allowlist-Pfad      -> roh
- *  "denied"   -> Datei-Tool, aber auf der Sperrliste      -> nur mit [ANON:RAW] roh
- *  "normal"   -> alles andere (Shell, MCP, fremde Pfade) -> immer filtern */
+/** "trusted" -> file tool under an allowlisted path -> raw
+ *  "denied"  -> file tool on the denylist -> raw only with [ANON:RAW]
+ *  "normal"  -> everything else (shell, MCP, other paths) -> always filter */
 function pathDecision(tool: string, input: unknown): "trusted" | "denied" | "normal" {
-  if (!FILE_TOOLS.has(tool)) return "normal" // Shell/MCP: nie ausgenommen
+  if (!FILE_TOOLS.has(tool)) return "normal" // Never exempt shell or MCP tools.
   const s = stringifyInput(input)
   if (!s) return "normal"
-  // Pfad-Traversal hart blockieren: ".."-Segmente koennen die Allowlist
-  // aushebeln.
+  // Block path traversal so `..` segments cannot bypass the allowlist.
   if (/(^|\/|\\)\.\.(\/|\\|$)/.test(s)) return "denied"
   if (NEVER_TRUSTED.some((p) => s.includes(p))) return "denied"
   if (trustedPaths().some((p) => s.includes(p))) return "trusted"
@@ -312,15 +304,15 @@ async function anonymize(text: string): Promise<string> {
   const resp = await requestStreaming(text, (done, total) => {
     const now = Date.now()
     if (!shown) {
-      // Erster Fortschrittswert: nur anzeigen, wenn die Schwelle ohnehin
-      // gerissen ist -- sonst wuerden kleine Ausgaben flackern.
+      // Show the first progress value only after the delay, to avoid flicker
+      // for small outputs.
       if (now - t0 < 700) return
       shown = true
       lastAt = now
       toast("Anonymizing…", "info")
       return
     }
-    if (now - lastAt < 900) return // nicht flackern
+    if (now - lastAt < 900) return // Avoid flicker.
     lastAt = now
     const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
     toast(`${done}/${total} sections · ${pct} %`, "info")
@@ -367,7 +359,7 @@ async function reverseMap(text: string): Promise<string> {
 
 /** Resolve a path-shaped argument. The model only ever knows the tag, so the
  *  mapped value must be a usable path. GLiNER sometimes spans a word in front
- *  of the path ("Datei /Users/x/y.json" -> [URL_2]); mapped back verbatim that
+ *  of the path ("File /home/example/y.json" -> [URL_2]); mapped back verbatim that
  *  would be an invalid path -> "File not found". In that case take the path
  *  part only.
  *  Careful: only when the result does NOT start with "/". A resolved name may
@@ -376,10 +368,9 @@ async function reverseMap(text: string): Promise<string> {
  *  "/tmp/Peter Parker.txt". */
 async function resolvePathArg(text: string): Promise<string> {
   const out = await reverseMap(text)
-  if (out.startsWith("/")) return out // war schon ein Pfad -> unveraendert
-  // Span enthielt Wort + Pfad: Pfad ist der Teil ab dem ersten "/" bis zum
-  // Ende (Pfade duerfen Leerzeichen enthalten, daher nicht an Whitespace
-  // schneiden).
+  if (out.startsWith("/")) return out // Already a path; leave it unchanged.
+  // If the detected span included a leading word, keep the path from the first
+  // slash onward. Paths may contain spaces, so do not split on whitespace.
   const idx = out.indexOf("/")
   if (idx > 0) return out.slice(idx)
   return out
@@ -433,11 +424,9 @@ export default Plugin.define({
     //    [[ANON:OFF]]    -> bypass tool filtering for exactly this request.
     await ctx.session.hook("prompt", (event) => {
       let text: string | undefined = event.prompt?.text
-      // Jede neue Nutzeranfrage entscheidet neu: erst zuruecksetzen, dann
-      // Marker anwenden. Eine Nachricht OHNE Marker ist damit automatisch
-      // wieder geschuetzt -- unabhaengig davon, was davor lief. Einmal-Marker
-      // verfallen ebenfalls, damit kein unueberwachtes Rohdatenfenster
-      // offen bleibt.
+      // Re-evaluate state for every user request: reset first, then apply its
+      // markers. A message without markers re-enables filtering, and one-shot
+      // markers expire so no unmonitored raw-data window remains open.
       if (anonOff) toast("Anonymization re-enabled (no marker)", "success")
       anonOff = false
       rawPaths = false
@@ -445,7 +434,7 @@ export default Plugin.define({
       singleOff = 0
       singleForce = 0
       if (!text || !event.prompt) return
-      // 1) Marker auswerten (einfache oder doppelte Klammern).
+      // 1) Evaluate markers (single-bracket forms only).
       const originalText = text
       for (const m of MARKERS) {
         const hits = text.match(m.re)
@@ -469,11 +458,10 @@ export default Plugin.define({
           forceTokens += hits.length
         }
       }
-      // 2) Unbekannte Marker sichtbar machen. Geprueft wird der ORIGINAL-Text ohne
-      //    die bekannten Formen: sonst wuerde ein erkannter S-Marker (der ja
-      //    sichtbar bleibt) faelschlich als "unbekannt" gemeldet. Und die
+      // 2) Warn about unknown markers. Check the original text after removing
+      //    known forms so visible S-markers are not reported as unknown. The
       //    Form verlangt ein sauberes ']' -- "/[/[ANON:S-FORCE/]/]" ist Absicht
-      //    (Nutzer will den Marker nicht ausloesen) und bleibt unangetastet.
+      //    closing-bracket check leaves intentionally malformed text untouched.
       let scan = originalText
       for (const m of MARKERS) scan = scan.replace(m.re, " ")
       const unknown = scan.match(/(?<!\[)\[ANON:[A-Z][A-Z:-]*\](?!\])/g)
@@ -485,10 +473,10 @@ export default Plugin.define({
           7000,
         )
       }
-      // 3) Doppelte Klammern kollabieren: [[PERSON_1]] -> [PERSON_1] und
-      //    [[ANON:OFF]] -> [ANON:OFF]. Der Marker ist damit fuer diese
-      //    Nachricht verbraucht, der Text bleibt fuer dich sichtbar. Fuer einen
-      //    literalen DOPPELTEN Text auf der Platte braucht es [[[PERSON_1]]].
+      // 3) Collapse escaped brackets: [[PERSON_1]] -> [PERSON_1] and
+      //    [[ANON:OFF]] -> [ANON:OFF]. The marker is consumed for this request
+      //    while remaining visible. To write double-bracket text literally,
+      //    use [[[PERSON_1]]].
       text = text.replace(/\[\[([A-Z][A-Z0-9_:-]*)\]\]/g, "[$1]")
       if (anonOff) {
         toast("Anonymization is OFF — ends with the next marker-less message", "warning", "Anonymizer", 5000)
@@ -506,21 +494,20 @@ export default Plugin.define({
     await ctx.tool.hook("execute.before", async (event) => {
       const input = event.input as Record<string, unknown> | undefined
       if (!input) return
-      // 1) Pfad-Argumente ALLER Tools aufloesen. Der Agent sieht Pfade in
-      //    anonymisierter Ausgabe (ls, read-Verzeichnis, Fehlermeldungen) und
-      //    muss sie mit read/edit/bash oeffnen koennen -- sonst "File not found:
-      //    /Users/[USERNAME_1]/...".
+      // 1) Resolve path arguments for all tools. The agent may see paths in
+      //    anonymized output (directory listings, errors, etc.) and must be able
+      //    to open them with read/edit/shell.
       for (const k of Object.keys(input)) {
         if (/path$/i.test(k) && typeof input[k] === "string") {
           input[k] = await resolvePathArg(input[k] as string)
         }
       }
-      // 2) Schreib-Tools: auch den Inhalt (Swap-Semantik, Escapes).
+      // 2) For write tools, also reverse-map the content (swaps and escapes).
       if (WRITE_TOOLS.has(event.tool)) {
         event.input = (await reverseMapDeep(input)) as typeof event.input
       } else if (!FILE_TOOLS.has(event.tool) && typeof input.command === "string") {
-        // Shell-Tools heissen je nach Runtime "bash", "shell", "terminal" ...
-        // deshalb nicht am Namen festmachen: alles mit command reverse-mappen.
+        // Shell tools may have different names ("bash", "shell", "terminal");
+        // reverse-map any input that has a command field.
         input.command = await reverseMap(input.command)
       }
     })
@@ -529,11 +516,11 @@ export default Plugin.define({
     //     before it reaches the model. This is the main PII leak path.
     await ctx.tool.hook("execute.after", async (event) => {
       if (event.status !== "completed" || !event.result) return
-      // Reihenfolge = Sicherheitsrang:
-      //   1) Nutzer hat global ausgeschaltet      -> alles roh
-      //   2) [[ANON:S-OFF]]                      -> nur dieses eine Ergebnis roh
-      //   3) [[ANON:S-FORCE]] / FORCED           -> filtern trotz trusted
-      //   4) trusted-Pfad                        -> roh
+      // Priority order:
+      //   1) Global filtering is off -> leave everything raw.
+      //   2) [ANON:S-OFF] -> leave this one result raw.
+      //   3) [ANON:S-FORCE] / FORCED -> filter even trusted paths.
+      //   4) Trusted path -> leave raw.
       if (anonOff) return
       if (singleOff > 0) {
         singleOff--
@@ -545,8 +532,8 @@ export default Plugin.define({
         return
       }
       const decision = pathDecision(event.tool, event.input)
-      // Gesperrte Dateien: nur mit [ANON:RAW] lesbar (Credentials, Logs,
-      // Sessions, state.json). Alles andere bleibt dabei gefiltert.
+      // Denied files (credentials, logs, sessions, state.json) are readable
+      // only with [ANON:RAW]. All other content remains filtered.
       if (decision === "denied" && rawPaths) return
       if (decision === "trusted") {
         if (forceTokens > 0) forceTokens--

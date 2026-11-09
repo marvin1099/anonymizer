@@ -1,12 +1,11 @@
-// Invariante: [TAG] wird IMMER resolved, unabhaengig von jedem Marker-
-// zustand. [[TAG]] bleibt immer literal. Das Reverse darf nie davon
-// abhaengen, ob die Filterung an oder aus ist -- es laeuft ja in der anderen
-// Richtung (Tool-Eingabe), nicht bei der Ausgabe.
-// Aufruf: bun test_reverse_always.ts
+// Invariant: [TAG] is always resolved, regardless of marker state.
+// [[TAG]] always stays literal. Reverse mapping applies to tool input, not
+// output, so it is independent of whether filtering is enabled.
+// Run with: bun test_reverse_always.ts
 import { PLUGIN_DIST } from "./helpers"
 const def0: any = await import(PLUGIN_DIST)
 
-const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
+const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 30 23125 0."
 
 let seq = 0
 async function fresh() {
@@ -50,44 +49,44 @@ const C = String.fromCharCode(93)
 const bare = (t: string) => t.slice(1, -1)
 const dbl = (t: string) => S + S + bare(t) + C + C
 
-// Tag einmalig erzeugen (im Default-Zustand)
+// Create a tag in the default state.
 const p = await fresh()
 const anon = await p.after(PII)
 const tag = anon.match(/\[PERSON_\d+\]/)?.[0] ?? ""
 const real = bare(tag) === "PERSON_1" ? "Peter Parker" : bare(tag)
 check("Tag + original determined", !!tag, `${tag} -> ${real}`)
 
-// Alle Markerzustaende durchprobieren
+// Check all marker states.
 const states: Array<[string, string]> = [
-  ["without marker", "ganz normale Nachricht"],
-  ["[ANON:OFF]", "[ANON:OFF] arbeite mit Rohdaten"],
-  ["[ANON:S-OFF]", "[ANON:S-OFF] einmal roh"],
-  ["[ANON:FORCED]", "[ANON:FORCED] filter streng"],
-  ["[ANON:S-FORCE]", "[ANON:S-FORCE] einmal filtern"],
+  ["without marker", "a plain message"],
+  ["[ANON:OFF]", "[ANON:OFF] work with raw data"],
+  ["[ANON:S-OFF]", "[ANON:S-OFF] one raw result"],
+  ["[ANON:FORCED]", "[ANON:FORCED] force filtering"],
+  ["[ANON:S-FORCE]", "[ANON:S-FORCE] filter one result"],
 ]
 
 for (const [name, msg] of states) {
   await p.prompt(msg)
 
-  // 1) Kommando: [TAG] resolved
+  // 1) Command: [TAG] resolves to its original.
   const cmd = await p.before("shell", { command: `grep "${tag}" f.txt` })
-  check(`${name}: Kommando loest [TAG] auf`, cmd.command.includes(real), "")
+  check(`${name}: command resolves [TAG]`, cmd.command.includes(real), "")
 
-  // 2) Kommando: [[TAG]] literal
+  // 2) Command: [[TAG]] stays literal.
   const esc = await p.before("shell", { command: `grep "${dbl(tag)}" f.txt` })
-  check(`${name}: Kommando laesst [[TAG]] literal`, esc.command.includes(tag) && !esc.command.includes(real), "")
+  check(`${name}: command keeps [[TAG]] literal`, esc.command.includes(tag) && !esc.command.includes(real), "")
 
   // 3) Schreib-Inhalt: [TAG] resolved
   const w = await p.before("write", { filePath: "/tmp/o.txt", content: `${tag} Notiz` })
-  check(`${name}: write loest [TAG] auf`, w.content.includes(real), "")
+  check(`${name}: write resolves [TAG]`, w.content.includes(real), "")
 
   // 4) Schreib-Inhalt: [[TAG]] literal
   const w2 = await p.before("write", { filePath: "/tmp/o.txt", content: `${dbl(tag)} Beispiel` })
-  check(`${name}: write laesst [[TAG]] literal`, w2.content.includes(tag) && !w2.content.includes(real), "")
+  check(`${name}: write keeps [[TAG]] literal`, w2.content.includes(tag) && !w2.content.includes(real), "")
 
-  // 5) Pfad-Argument: [TAG] resolved
+  // 5) Path argument: [TAG] resolves.
   const r = await p.before("read", { filePath: `/tmp/${tag}.txt` })
-  check(`${name}: Pfad-Argument loest auf`, r.filePath.includes(real), "")
+  check(`${name}: path argument resolves [TAG]`, r.filePath.includes(real), "")
 }
 
 console.log(failures === 0 ? "\n== REVERSE ALWAYS ACTIVE ==" : `\n== ${failures} FAILURES ==`)

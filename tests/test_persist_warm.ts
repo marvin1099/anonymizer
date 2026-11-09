@@ -1,14 +1,13 @@
 import { SOCK } from "./helpers"
-// Beweis ohne State-Leerung: Numbering + Reverse-Mapping ueberleben einen
-// Daemon-Neustart. Nutzt einen einmaligen Namen, damit die Nummern in einem
-// warmen State eindeutig sind (state.json wird bewusst NICHT geloescht).
-// Aufruf: bun test_persist_warm.ts a   |   Neustart   |   bun test_persist_warm.ts b
+// Verify that numbering and reverse mapping survive a daemon restart without
+// clearing state. A unique name keeps the placeholder unambiguous.
+// Run with: bun test_persist_warm.ts a, restart the daemon, then use phase b.
 import { connect } from "node:net"
 
 const S = String.fromCharCode(91)
 const C = String.fromCharCode(93)
 const NAME = "Wilhelmine Faydrbush"
-const PATH = "${HOME_DIR}/warm.json"
+const PATH = "/home/example-user/warm.json"
 
 function send(payload: unknown): Promise<any | null> {
   return new Promise((resolve) => {
@@ -40,8 +39,8 @@ const check = (name: string, ok: boolean, info = "") => {
   console.log((ok ? "PASS  " : "FAIL  ") + name + (info ? "  -> " + info : ""))
   if (!ok) failures++
 }
-// Extrakt ohne Regex: die oeffnende Klammer steht direkt vor dem Label,
-// danach folgen nur Ziffern. Regex waere hier eine Zeichenklasse-Falle.
+// Extract a tag without regex: the opening bracket precedes the label, then
+// only digits follow. A character class would be error-prone here.
 const grab = (t: string, label: string) => {
   const i = t.indexOf(label)
   if (i === -1) return ""
@@ -51,9 +50,9 @@ const grab = (t: string, label: string) => {
   return t.slice(open, k) + C
 }
 
-const r = await send({ text: `Kontakt ${NAME}, Datei ${PATH}`, opts: {} })
+const r = await send({ text: `Contact ${NAME}, file ${PATH}`, opts: {} })
 if (!r?.text) {
-  console.log("FAIL  daemon responds nicht (Socket " + SOCK + ")")
+  console.log("FAIL  daemon did not respond (socket " + SOCK + ")")
   process.exit(1)
 }
 const tag = grab(r.text, "PERSON_")
@@ -62,13 +61,13 @@ check("Name recognized as PERSON", !!tag, r.text)
 check("Path recognized as URL", !!pathTag, r.text)
 const rev = await send({ resolve: [tag ?? "", pathTag ?? ""] })
 check("Name reverse-resolvable", rev?.map?.[tag ?? ""] === NAME, JSON.stringify(rev?.map))
-// Der URL-Span umfasst das fuehrende Wort mit ("File /pfad") -- daher contains.
+// The URL span may include the leading word ("File /path"), so check inclusion.
 check("Path reverse-resolvable", (rev?.map?.[pathTag ?? ""] ?? "").includes(PATH), (pathTag ?? "") + " -> " + rev?.map?.[pathTag ?? ""])
 
 if ((process.argv[2] ?? "a") === "a") {
   console.log("TAG=" + (tag ?? ""))
 } else {
-  console.log("erwartet TAG=" + (tag ?? ""))
+  console.log("expected TAG=" + (tag ?? ""))
 }
 console.log(failures === 0 ? "\n== PHASE OK ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)

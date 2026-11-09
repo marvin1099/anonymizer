@@ -1,4 +1,4 @@
-"""CLI: anon --text/--file/--dir  (einweg Anonymisierung DE+EN)."""
+"""CLI for one-way anonymization of text, files, and directories."""
 from __future__ import annotations
 
 import argparse
@@ -56,8 +56,8 @@ def _process(text: str, args) -> tuple[str, dict]:
     include = set(args.include.split(",")) if args.include else None
     exclude = set(args.exclude.split(",")) if args.exclude else None
 
-    # Warm-Route: Daemon laeuft? -> schneller Request (GLiNER bleibt geladen,
-    # persistente Nummerierung ueber alle Aufrufe).
+    # Reuse the warm daemon when available so the model stays loaded and
+    # placeholder numbering persists across requests.
     if not args.llm:
         from . import serve as serve_mod
 

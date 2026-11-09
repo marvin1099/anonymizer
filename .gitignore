@@ -1,7 +1,6 @@
 # --- Plugin ---
 plugin/node_modules/
 plugin/dist/
-plugin/bun.lock
 
 # --- Daemon ---
 .venv/

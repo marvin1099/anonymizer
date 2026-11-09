@@ -1,4 +1,4 @@
-"""Stufe 3 (optional): kleines lokales LLM via Ollama fuer kontextuelle Faelle."""
+"""Optional stage 3: use a small local Ollama model for context-dependent cases."""
 from __future__ import annotations
 
 import json
@@ -10,9 +10,10 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 DEFAULT_MODEL = "qwen2.5:7b"
 
 _SYSTEM = (
-    "Du bist ein praeziser PII-Detektor. Finde personenbezogene Daten und "
-    "Firmendaten: Namen, Organisationen, Adressen, Telefonnummern, IBAN, "
-    "Steuernummern, IDs, E-Mails, Geburtsdaten. Antworte NUR mit JSON."
+    "You are a precise PII detector. Find personal and business data in any "
+    "language, including German and English: names, organizations, addresses, "
+    "phone numbers, IBANs, tax IDs, identifiers, email addresses, and dates of "
+    "birth. Reply with JSON only."
 )
 
 
@@ -34,8 +35,9 @@ def chat(prompt: str, model: str = DEFAULT_MODEL, system: str | None = None) -> 
 
 def llm_spans(text: str, model: str = DEFAULT_MODEL) -> list[Span]:
     prompt = (
-        "Finde alle sensiblen Entitaeten im folgenden Text.\n"
-        'Gib JSON zurueck: {"entities":[{"text":"<wortgetreuer Teilstring>","label":"PERSON|ORG|ADDRESS|LOC|EMAIL|PHONE|IBAN|TAX_ID|ID|DOB"}]}\n\n'
+        "Find all sensitive entities in the following text. Preserve each "
+        "entity exactly as written.\n"
+        'Return JSON: {"entities":[{"text":"<exact substring>","label":"PERSON|ORG|ADDRESS|LOC|EMAIL|PHONE|IBAN|TAX_ID|ID|DOB"}]}\n\n'
         f"TEXT:\n{text}"
     )
     try:

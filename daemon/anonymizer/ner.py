@@ -1,13 +1,12 @@
-"""Stufe 2: NER via GLiNER (multilingual, laeuft auf Apple Silicon / CPU).
+"""Stage 2: NER via GLiNER (multilingual; runs on Apple Silicon and CPU).
 
-Das Modell ist der eigentliche Detektor -- Regex-Regeln in detectors.py decken
-nur ab, was es nachweislich nicht leistet (Pruefsummen, exakte Formate).
+The model handles general entity detection. Regex rules in detectors.py cover
+formats it does not reliably detect, such as checksummed and exact formats.
 
-Lange Texte: GLiNER schneidet auf 384 Tokens ab. Deshalb wird der Text in
-Chunks zerlegt, die per Tokenizer *gemessen* unter diesem Budget bleiben, an
-Zeilengrenzen enden und leicht ueberlappen (Entitaeten an Grenzen gehen sonst
-verloren). Die Chunks werden gebündelt durch `batch_predict_entities` geschickt
--- das ist der Performance-Hebel (Faktor ~5 gegenueber Einzelaufrufen).
+GLiNER truncates inputs at 384 tokens. Long text is split into tokenizer-sized
+chunks that end on line boundaries and overlap slightly so entities at chunk
+boundaries are not lost. Chunks are predicted individually because batching
+reduced span quality and did not improve throughput in testing.
 """
 from __future__ import annotations
 
@@ -17,7 +16,7 @@ from .detectors import Span
 
 MODEL_ID = os.environ.get("ANON_GLINER_MODEL", "urchade/gliner_multi_pii-v1")
 
-# Labels, die dem GLiNER-Modell uebergeben werden.
+# Labels passed to the GLiNER model.
 LABELS = [
     "person",
     "organization",
@@ -40,7 +39,7 @@ LABELS = [
     "password",
 ]
 
-# GLiNER-Label -> Ausgabe-Label
+# GLiNER label -> output label.
 LABEL_MAP = {
     "person": "PERSON",
     "organization": "ORG",
@@ -63,13 +62,13 @@ LABEL_MAP = {
     "password": "PASSWORD",
 }
 
-# GLiNER truncatet bei 384 Tokens -> mit Puffer darunter bleiben.
+# GLiNER truncates inputs at 384 tokens; stay below that limit with a buffer.
 MAX_TOKENS = 340
-# Ueberlappung zwischen Chunks in Zeichen (faengt Entitaeten an Grenzen ab).
+# Chunk overlap in characters, to catch entities at boundaries.
 CHUNK_OVERLAP_CHARS = 120
-# (Batching entfernt: verfälscht die Spans, kein Speedup)
+# Batching was removed: it degraded spans and did not improve throughput.
 
-# Notfall-Budget, falls der Tokenizer nicht erreichbar ist.
+# Fallback chunk size when no tokenizer is available.
 FALLBACK_CHUNK_CHARS = 900
 
 _model = None
@@ -82,7 +81,7 @@ def _get_model():
 
         from gliner import GLiNER
 
-        # Der Mac hat 10 Kerne, torch nutzt aber nur 4 -> ~20% mehr Durchsatz.
+        # Use all available CPU cores where supported.
         try:
             torch.set_num_threads(os.cpu_count() or 4)
         except Exception:
@@ -92,7 +91,7 @@ def _get_model():
 
 
 def preload_model():
-    """Modell jetzt laden (Daemon-Start), damit spaetere Aufrufe warm sind."""
+    """Load the model during daemon startup so later requests are warm."""
     _get_model()
 
 
@@ -106,8 +105,7 @@ def _ntok(tok, text: str) -> int:
 
 
 def _hard_split(text: str, start: int, end: int, tok, budget: int):
-    """Ein einzelner Abschnitt (z.B. eine Minidin ohne Zeilenumbruch) ist zu
-    gross: per二分-Suche in Token-Budget-grosse Stuecke teilen."""
+    """Split an oversized section (for example, a long line) by token budget."""
     lo, hi = start, end
     while lo < hi:
         mid = (lo + hi + 1) // 2
@@ -124,14 +122,13 @@ def _hard_split(text: str, start: int, end: int, tok, budget: int):
 
 
 def _plan_chunks(text: str, model) -> list[tuple[int, int]]:
-    """(start, end)-Offsets: token-budgetiert, zeilenweise geschnitten,
-    ueberlappend. Deterministisch und auf den ganzen Text anwendbar."""
+    """Return deterministic, token-budgeted, line-aware overlapping offsets."""
     n = len(text)
     if n == 0:
         return []
     tok = _tokenizer(model)
     if tok is None:
-        # Kein Tokenizer: grobe Zeichenschuetzung.
+        # Without a tokenizer, use a conservative character-based estimate.
         step = FALLBACK_CHUNK_CHARS
         chunks, pos = [], 0
         while pos < n:
@@ -146,14 +143,14 @@ def _plan_chunks(text: str, model) -> list[tuple[int, int]]:
             pos = max(end - CHUNK_OVERLAP_CHARS, pos + 1)
         return chunks
 
-    # Zeichen-pro-Token aus einer Stichprobe schaetzen, damit die Greife fuer
-    # Zeilen billig bleiben; exakt geprueft wird danach mit dem Tokenizer.
+    # Estimate characters per token from a sample to keep line grouping cheap;
+    # verify exact token counts afterward.
     sample = text[:3000]
     n_ids = max(_ntok(tok, sample), 1)
     chars_per_token = max(len(sample) / n_ids, 1.0)
     soft_budget_chars = int(MAX_TOKENS * chars_per_token)
 
-    # Zeilenspannen (inkl. Zeilenumbruch).
+    # Line spans, including their newline characters.
     line_spans: list[tuple[int, int]] = []
     start = 0
     for i, ch in enumerate(text):
@@ -163,7 +160,7 @@ def _plan_chunks(text: str, model) -> list[tuple[int, int]]:
     if start < n:
         line_spans.append((start, n))
 
-    # Zeilenweise greedy fuellen; am Ende (bzw. bei Ueberlauf) exakt pruefen.
+    # Greedily group lines, then verify each chunk's exact token count.
     raw: list[tuple[int, int]] = []
 
     def _emit(s: int, e: int) -> None:
@@ -193,9 +190,8 @@ def _plan_chunks(text: str, model) -> list[tuple[int, int]]:
     if cur_start is not None:
         _flush(cur_start, cur_end)
 
-    # Ueberlappung: jedes Stueck beginnt CHUNK_OVERLAP_CHARS frueher als das
-    # vorige endet. Grenz-Entitaeten werden so zweimal gesehen; die Engine
-    # dedupliziert ueberlappende Spans (laengster/hoechster Score gewinnt).
+    # Overlap chunks so boundary entities appear twice; the engine deduplicates
+    # overlapping spans, preferring longer spans and higher scores.
     planned: list[tuple[int, int]] = []
     for s, e in raw:
         if planned:
@@ -204,18 +200,20 @@ def _plan_chunks(text: str, model) -> list[tuple[int, int]]:
         if fit is not None:
             planned.append((fit, e))
         else:
-            # Selbst ohne Ueberlappung zu gross: hart teilen (darf dann nicht
-            # noch einmal ueberlappen, sonst wieder Budget-Ueberschreitung).
+            # Still too large without overlap: split directly, without adding
+            # overlap that would exceed the token budget again.
             for ps, pe in _hard_split(text, s, e, tok, MAX_TOKENS):
                 planned.append((ps, pe))
     return planned
 
 
 def _fit_start(text: str, start: int, end: int, tok, budget: int) -> int | None:
-    """Kleinster Startpunkt ab `start`, bei dem [start, end) noch in das
-    Token-Budget passt -- None, wenn selbst der Start zu gross ist.
-    Wird gebraucht, weil die Ueberlappung erst NACH dem Zuschnitt dazukommt
-    und sonst das Budget sprengt (GLiNER warnt dann 'truncated to 384')."""
+    """Find the earliest start whose [start, end) range fits the token budget.
+
+    Return None if the range is too large even without overlap. This is needed
+    because overlap is added after chunking and could otherwise exceed the
+    model's token limit.
+    """
     lo, hi, best = start, end, None
     while lo <= hi:
         mid = (lo + hi) // 2
@@ -235,17 +233,15 @@ def detect_ner(text: str, threshold: float = 0.45, progress=None) -> list[Span]:
     out: list[Span] = []
     best: dict[tuple[int, int], float] = {}
     for idx, (cs, ce) in enumerate(chunks, start=1):
-        # Bewusst EINZELN pro Chunk, nicht batch_predict_entities: beim Batching
-        # paddet GLiNER auf die laengste Sequenz des Batches und liefert dann
-        # schlechtere Spans (gemessen: Logins "e.mertens" 1/4 statt 4/4).
-        # Batching brachte keinen messbaren Durchsatzgewinn (4.5-4.6 chunks/s
-        # bei Batch 4/8/16/32/48), deshalb ist es raus.
+        # Predict each chunk individually instead of using batch_predict_entities:
+        # padding to the longest sequence degraded spans, and batching did not
+        # measurably improve throughput in tests.
         for e in model.predict_entities(text[cs:ce], LABELS, threshold=threshold):
             s = cs + int(e["start"])
             en = cs + int(e["end"])
             if en <= s or en > len(text):
                 continue
-            # Leerraum am Span-Rand abschneiden (sonst Textverlust beim Replace).
+            # Trim whitespace at span edges to avoid losing text on replacement.
             while s < en and text[s].isspace():
                 s += 1
             while en > s and text[en - 1].isspace():
@@ -258,8 +254,7 @@ def detect_ner(text: str, threshold: float = 0.45, progress=None) -> list[Span]:
             label = LABEL_MAP.get(e["label"], str(e["label"]).upper().replace(" ", "_"))
             out.append(Span(label, s, en, text[s:en], score, "ner"))
         if progress is not None:
-            # Fortschritt pro Chunk: die Wartezeit (Ganzdatei ~25 s) soll im UI
-            # sichtbar sein, damit sie nicht wie ein Haenger wirkt.
+            # Report progress per chunk so long files do not look stalled.
             progress(idx, len(chunks))
     out.sort(key=lambda sp: sp.start)
     return out

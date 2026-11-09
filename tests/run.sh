@@ -1,77 +1,71 @@
 #!/bin/sh
-# Test-Lauf fuer den anonymizer.
+# Run the isolated integration test suite.
 #
-# Der Punkt des Ganzen: die Suitten muessen auf einem frisch geklonten Repo
-# laufen, ohne deine echte Konfiguration zu beruehren und ohne deinen echten
-# Daemon-State zu belasten. Deshalb:
+# The suite must work from a fresh clone without touching the user's real
+# configuration or daemon state. It therefore:
 #
-#   * /tmp/anon-free bekommt EIGENEN Config-, Socket- und State-Pfad.
-#     ~/.config/opencode/anonymizer.json wird nie gelesen, nie geschrieben.
-#   * Jeder Lauf startet mit frischem State -- alte Numerierung laesst sonst
-#     Tests fehlschlagen, die PERSON_1/PERSON_2 voraussetzen.
-#   * PYTHONPATH zeigt auf das REPO, damit der gestartete Daemon den Code aus
-#     diesem Repo fuehrt und nicht eine installierte Kopie. Sonst testet man
-#     stillschweigend etwas anderes, als hier liegt.
-#   * Nach dem Start wird geprueft, dass der Daemon WIRKLICH am Sandbox-Socket
-#     hoert. Das ist die stille Falle: er laeuft, aber am alten Pfad.
+#   * Creates a unique temporary directory for config, socket, and state.
+#   * Starts with fresh state for deterministic placeholder numbers.
+#   * Points PYTHONPATH at this checkout, not an installed package copy.
+#   * Verifies that the daemon listens on the isolated socket.
 set -e
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-SANDBOX="/tmp/anon-free"
-BUN="${BUN:-$HOME/.bun/bin/bun}"
-VENV_PY="${ANON_PYTHON:-$HOME/.local/share/anonymizer/.venv/bin/python3}"
+BUN="${BUN:-$(command -v bun 2>/dev/null || printf '%s' "$HOME/.bun/bin/bun")}"
+VENV_PY="${ANON_PYTHON:-$REPO/daemon/.venv/bin/python3}"
 
 [ -x "$BUN" ] || { echo "bun not found (set BUN=/path/to/bun)"; exit 1; }
+[ -x "$VENV_PY" ] || { echo "Python venv not found at $VENV_PY (see README, 'Install -> Daemon'; or set ANON_PYTHON)"; exit 1; }
 
-# 1) Sandbox frisch aufbauen -> garantiert leerer Zaehlstand.
-#    Nur ein Daemon, der AM SANDBOX-SOCKET laeuft, wird beendet (lsof),
-#    niemals der laufende Benutzer-Daemon.
-if lsof -t -U "$SANDBOX/share/anon.sock" >/dev/null 2>&1; then
-  echo "== stopping old sandbox daemon =="
-  lsof -t -U "$SANDBOX/share/anon.sock" | xargs kill -9 2>/dev/null || true
-  sleep 1
-fi
-rm -rf "$SANDBOX"
-mkdir -p "$SANDBOX"/{share,config,trusted,roh}
+echo "== Python unit tests =="
+PYTHONPATH="$REPO/daemon${PYTHONPATH:+:$PYTHONPATH}" \
+  "$VENV_PY" -m unittest discover -s "$REPO/tests" -p 'test_*.py'
 
-# 2) Plugin aus dem REPO bauen. Ohne das testen die Suitten nichts.
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/anon-free.XXXXXX")"
+
+# Use a new sandbox for each run; never remove or reuse a fixed /tmp path.
+mkdir -p "$SANDBOX/share" "$SANDBOX/config" "$SANDBOX/trusted" "$SANDBOX/roh"
+
+# Build the plugin from this checkout before running the tests.
 echo "== building plugin/dist =="
-(cd "$REPO/plugin" && "$BUN" install --silent && "$BUN" build ./index.ts \
+(cd "$REPO/plugin" && "$BUN" install --frozen-lockfile --silent && "$BUN" build ./index.ts \
   --outdir dist --target bun --format esm >/dev/null)
 
-# 3) Sandbox-Config: die Ordner, die in den Tests ROH bleiben sollen.
-#    Alles ausserhalb ist damit automatisch gefiltert -- unabhaengig davon,
-#    was auf dem Rechner des Lesers in der echten Konfiguration steht.
+# Sandbox config: only these test folders are trusted. All other paths are
+# filtered, regardless of the user's actual configuration.
 cat > "$SANDBOX/config/anonymizer.json" <<JSON
 { "trustedPaths": ["$SANDBOX/trusted", "$SANDBOX/roh"] }
 JSON
 
-# 4) Isolierte Umgebung fuer Plugin UND Daemon. Der Plugin-Spawn
-#    (ensureDaemon -> "anon --serve") erbt diese Variablen.
+# Both the plugin and its child daemon inherit this isolated environment.
 export ANON_SANDBOX="$SANDBOX"
 export ANON_CONFIG="$SANDBOX/config/anonymizer.json"
 export ANON_SOCK="$SANDBOX/share/anon.sock"
 export ANON_STATE="$SANDBOX/share/state.json"
 export ANON_PLUGIN="$REPO/plugin/dist/index.js"
-export ANON_BIN="${ANON_BIN:-$REPO/tests/bin/anon}"
 export PYTHONPATH="$REPO/daemon${PYTHONPATH:+:$PYTHONPATH}"
 
-# 5) Test CLI: used repo-wide so 'anon' runs the repo code.
-mkdir -p "$REPO/tests/bin"
-cat > "$REPO/tests/bin/anon" <<EOF
+if [ -z "${ANON_BIN:-}" ]; then
+  ANON_BIN="$SANDBOX/bin/anon"
+  mkdir -p "$SANDBOX/bin"
+  cat > "$ANON_BIN" <<EOF
 #!/bin/sh
 export PYTHONPATH="$REPO/daemon\${PYTHONPATH:+:\$PYTHONPATH}"
 exec "$VENV_PY" -m anonymizer.cli "\$@"
 EOF
-chmod +x "$REPO/tests/bin/anon"
-[ -x "$VENV_PY" ] || { echo "venv python missing: $VENV_PY (see README, 'Install -> Daemon')"; exit 1; }
+  chmod +x "$ANON_BIN"
+fi
+export ANON_BIN
 
-# 6) Daemon in der Sandbox starten und NACHWEISEN, dass er am Sandbox-Socket
-#    hoert. Genau diese Pruefung faengt den Fehler, dass er am alten Pfad laeuft.
+# Start the sandbox daemon and verify that it listens on the sandbox socket.
 echo "== starting isolated daemon (fresh state) =="
 "$ANON_BIN" --serve > "$SANDBOX/share/serve.log" 2>&1 &
 DAEMON=$!
-trap 'kill $DAEMON 2>/dev/null || true' EXIT INT TERM
+cleanup() {
+  kill "$DAEMON" 2>/dev/null || true
+  wait "$DAEMON" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 i=0
 while [ ! -S "$ANON_SOCK" ]; do
@@ -80,7 +74,7 @@ while [ ! -S "$ANON_SOCK" ]; do
   sleep 0.5
 done
 
-# Verifikation: der Daemon muss auf $ANON_SOCK gehoert haben.
+# Verify the daemon is listening on the isolated socket.
 if ! grep -q "listening on $ANON_SOCK" "$SANDBOX/share/serve.log"; then
   echo "ERROR: daemon is NOT listening on the sandbox socket:"
   grep -o "listening on.*" "$SANDBOX/share/serve.log" | tail -1
@@ -89,8 +83,7 @@ if ! grep -q "listening on $ANON_SOCK" "$SANDBOX/share/serve.log"; then
 fi
 echo "Daemon isolated: $ANON_SOCK"
 
-# 7) Suitten laufen. Abbruch (Crash) zaehlt als FEHLER -- sonst ergibt ein
-#    abgestuerzter Test still 0 Fehler, weil nie eine FAIL-Zeile gedruckt wird.
+# A crash counts as a failure even if the test did not print a FAIL line.
 cd "$REPO/tests"
 if [ "$#" -eq 0 ]; then
   set -- test_hooks.ts test_marker.ts test_single.ts test_denylist.ts test_raw.ts \

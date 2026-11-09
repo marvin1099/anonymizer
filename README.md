@@ -4,7 +4,7 @@ Local, one-way PII anonymization for coding agents — for German and English te
 
 Everything runs on your machine. No cloud API, no telemetry. The tool replaces
 names, locations, emails, phone numbers, IBANs and similar identifiers with
-stable placeholders (`Peter Parker`, `Ort Berlin`, `peter.parker@example.com`, …), and can map them
+stable placeholders (`[PERSON_1]`, `[LOC_1]`, `[EMAIL_1]`, …), and can map them
 back to the originals on demand. It was built as an OpenCode plugin plus a local
 Python daemon, but both halves are usable on their own.
 
@@ -58,14 +58,17 @@ python3 -m venv .venv
 .venv/bin/anon --text "Peter Parker aus Berlin"   # smoke test
 ```
 
-Requires Python 3.12+. The NER model (gliner + torch) downloads on first use.
-`--no-ner` skips it for regex-only operation.
+Requires Python 3.12+. The multilingual NER model (GLiNER + PyTorch) downloads
+on first use. It supports German and English; `--lang de`, `--lang en`, or the
+default `--lang both` selects the detector rules. `--no-ner` explicitly skips
+the model and uses deterministic rules only. If NER fails while enabled, the
+tool returns an error rather than silently falling back to regex-only filtering.
 
 ### 2. Plugin (OpenCode)
 
 ```bash
 cd plugin
-bun add
+bun install --frozen-lockfile
 bun build ./index.ts --outdir dist --target bun --format esm
 cp -R . ~/.config/opencode/plugins/anonymizer
 ```
@@ -96,7 +99,7 @@ sessions and credentials stay blocked regardless of what you list here.
 Anonymize a string, a file, or a directory:
 
 ```bash
-anon --text "Peter Parker aus Berlin, Telefon +49 170 1234567"
+anon --text "Peter Parker aus Berlin, Telefon +49 30 23125 0"
 anon --file note.txt --out note.anon.txt
 anon --dir ./tickets --suffix .anon --include "*.md"
 cat | anon --stdin
@@ -129,32 +132,22 @@ work in tool output — the model cannot switch the filter off for itself.
 | `[[ANON:S-FORCE]]` | Force one tool result through the filter |
 
 Placeholders in your tool input are resolved back to real values automatically,
-so `grep "Peter Parker"` searches for the actual name.
+so `grep "[PERSON_1]"` searches for the original name.
 
 ## Tests
 
-The suites import `plugin/dist/index.js`, so build first.
+Install the daemon dependencies above and Bun, then run the isolated suite:
 
 ```bash
-cd plugin && bun build ./index.ts --outdir dist --target bun --format esm
-cd ../tests
-for m in strip-off strip-forced base-untrusted base-trusted forced-trusted \
-         off reverse reverse-off reverse-stale reverse-path reverse-pathspan; do
-  bun test_hooks.ts "$m"
-done
-for t in marker single denylist raw offscope reverse_always cmdpath trusted \
-         resolve persist_warm; do
-  bun "test_$t.ts"
-done
+cd plugin && bun install --frozen-lockfile
+cd ..
+./tests/run.sh
 ```
 
-Two things worth knowing when reading failures:
-
-- The suites share one daemon socket. Stale mapping state from a previous run
-  causes bogus failures — restart the daemon (`pkill -f "anon --serve"; rm -f
-  anon.sock`) before trusting a red run.
-- `state.json` is per-user accumulated mapping state. Tests that assume
-  placeholder numbering starts at 1 only pass against a fresh state.
+The runner builds the plugin and starts a daemon with a new temporary socket,
+configuration, and state file. It does not read or modify your real OpenCode
+configuration or daemon state. German-language fixtures are intentional and
+exercise German support alongside English fixtures.
 
 ## State
 

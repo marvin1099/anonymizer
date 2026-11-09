@@ -1,13 +1,12 @@
-"""Warm-Model-Daemon: GLiNER bleibt geladen, Unix Socket, JSON pro Zeile.
+"""Warm-model daemon: GLiNER stays loaded; Unix socket, one JSON object per line.
 
 Protokoll (eine JSON-Objekt pro Zeile, newline-delimited):
-  Anfrage:  {"text": "...", "opts": {"lang": ..., "use_ner": ..., ...}}
-  Antwort:  {"ok": true, "text": "...", "replacements": [{...}, ...], "counts": {...}}
-  Fehler:   {"ok": false, "error": "..."}
+  Request:  {"text": "...", "opts": {"lang": ..., "use_ner": ..., ...}}
+  Response: {"ok": true, "text": "...", "replacements": [{...}, ...], "counts": {...}}
+  Error:    {"ok": false, "error": "..."}
 
-Persistenter Zustand (counters/seen) sorgt fuer stabile Placeholder
-ueber alle Anfragen hinweg: Anna Mueller -> immer [PERSON_1].
-Reverse-Lookup passiert im Plugin/CLI via "replacements" (original<->placeholder).
+Persistent counters and mappings keep placeholders stable across requests.
+Reverse lookup is available to the plugin and CLI via the replacements map.
 """
 from __future__ import annotations
 
@@ -20,28 +19,25 @@ import sys
 import threading
 from collections import OrderedDict
 
-# Pfade aus $HOME abgeleitet, nicht eingebacken. Ueberschreibbar ueber die
-# Umgebung, damit die Tests gegen ein Sandbox-Verzeichnis laufen koennen
-# (ein gemeinsamer Socket waere sonst State-Pollution zwischen den Laeufen).
+# Paths are derived from $HOME, not hard-coded. Environment variables can
+# redirect them so tests use an isolated sandbox and do not share state.
 _SOCKET_ENV = os.environ.get("ANON_SOCK")
 _STATE_ENV = os.environ.get("ANON_STATE")
 _SHARE = os.path.expanduser("~/.local/share/anonymizer")
 SOCKET_PATH = _SOCKET_ENV or os.path.join(_SHARE, "anon.sock")
 STATE_PATH = _STATE_ENV or os.path.join(_SHARE, "state.json")
 
-# In-Memory-Cache fuer bereits anonymisierte Texte (haeufig: gleiche Datei
-# wird mehrfach gelesen). Klein gehalten, damit der RAM nicht wächst.
+# Cache anonymized text in memory because the same files are often read more
+# than once. Keep it small to limit memory use.
 _CACHE: "OrderedDict[str, dict]" = OrderedDict()
 _CACHE_MAX = 32
-# Serialisiert Zugriff auf State/Cache ueber alle Client-Threads (Korrektheit
-# der Platzhalter-Nummerierung + Race-freies Speichern).
+# Serialize access to state and cache across client threads so placeholder
+# numbering stays correct and state writes do not race.
 _STATE_LOCK = threading.RLock()
 
 
 def _load_state() -> dict:
-    """State von Platte laden, damit Placeholder und Reverse-Mapping einen
-    Daemon-Neustart ueberleben (sonst kann das Plugin Pfade nicht mehr
-    zurueckuebersetzen: '/Users/[USERNAME_1]/...' -> File not found)."""
+    """Load state from disk so placeholders and reverse mappings survive restarts."""
     try:
         os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
         with open(STATE_PATH, encoding="utf-8") as f:
@@ -49,7 +45,7 @@ def _load_state() -> dict:
         if isinstance(data, dict):
             data.setdefault("counters", {})
             data.setdefault("exact", {})
-            # 'seen' hat Tupel-Keys -> auf der Platte als Liste von 3-Tupeln.
+            # JSON cannot store tuple keys; `seen` is stored as triples.
             data["seen"] = {
                 (str(p[0]), str(p[1])): str(p[2])
                 for p in (data.get("seen") or [])
@@ -72,7 +68,7 @@ def _save_state(state: dict) -> None:
         os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
         payload = {
             "counters": state.get("counters", {}),
-            # Tupel-Keys sind in JSON unzulaessig -> Liste von 3-Tupeln.
+            # JSON cannot store tuple keys, so store `seen` as triples.
             "seen": [[k[0], k[1], ph] for k, ph in state.get("seen", {}).items()],
             "exact": state.get("exact", {}),
         }
@@ -145,8 +141,8 @@ def _handle(line: str, state: dict, emit=None) -> dict:
             exclude=opts.get("exclude"),
             state=state,
             # Fortschrittszeilen VOR der Antwort, wenn der Client streamt
-            # (Plugin zeigt sie als Toast, damit lange Läufe nicht wie ein
-            # Haenger wirken). Ohne "progress": keine Zusatzzeilen.
+            # (The plugin shows them as toasts so long requests do not look
+            # stuck.) No extra lines are sent unless `progress` is requested.
             progress=(
                 (lambda done, total: emit({"p": done, "n": total}))
                 if (emit is not None and req.get("progress"))
@@ -192,7 +188,7 @@ def is_alive(socket_path: str = SOCKET_PATH, timeout: float = 0.3) -> bool:
 
 def request(text: str, opts: dict | None = None, socket_path: str = SOCKET_PATH,
             timeout: float = 30.0) -> dict | None:
-    """Anfrage an den Daemon. None wenn kein Daemon laeuft."""
+    """Send a daemon request, or return None if no daemon is running."""
     try:
         s = socket.socket(socket.AF_UNIX)
         s.settimeout(timeout)
@@ -257,7 +253,7 @@ def serve(socket_path: str = SOCKET_PATH) -> None:
         lock = threading.Lock()
 
         def emit(obj: dict) -> None:
-            # Fortschrittszeilen waehrend der Verarbeitung senden.
+            # Send progress lines while the request is being processed.
             with lock:
                 try:
                     conn.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))

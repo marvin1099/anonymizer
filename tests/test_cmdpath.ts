@@ -1,10 +1,10 @@
-// Kommando-Pfad: [TAG] wird resolved, [[TAG]] stays literal.
-// Deckt auch den Toolnamen-Unterschied ab ("shell" vs "bash" vs sonstige).
-// Aufruf: bun test_cmdpath.ts
-import { PLUGIN_DIST, HOME_DIR } from "./helpers"
+// Command paths resolve [TAG] while keeping [[TAG]] literal. Also test
+// different shell tool names ("shell", "bash", and others).
+// Run with: bun test_cmdpath.ts
+import { PLUGIN_DIST } from "./helpers"
 const def0: any = await import(PLUGIN_DIST)
 
-const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
+const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 30 23125 0."
 
 let seq = 0
 async function fresh() {
@@ -40,31 +40,31 @@ const check = (name: string, ok: boolean, info = "") => {
 }
 const S = String.fromCharCode(91)
 const C = String.fromCharCode(93)
-// ACHTUNG: tag enthaelt bereits Klammern. Fuer doppelte Klammern den NACKTEN
-// Namen nehmen, sonst entstehen dreifache und man testet den Escape gar nicht.
+// Tags already include brackets. Use the bare name to make a double-bracket
+// escape, otherwise the test would produce triple brackets.
 const bare = (t: string) => t.slice(1, -1)
 const dbl = (t: string) => S + S + bare(t) + C + C // [[TAG]]
 
-// Tag aus einer echten Anonymisierung holen
+// Get a tag from an actual anonymization result.
 const p = await fresh()
 const anon = await p.after(PII)
 const tag = anon.match(/\[PERSON_\d+\]/)?.[0] ?? ""
 const emailTag = anon.match(/\[EMAIL_\d+\]/)?.[0] ?? ""
 check("tag created", !!tag, `${tag} / ${emailTag}`)
 
-// 1) Aufloesen: [TAG] -> Original
+// 1) Resolve [TAG] to the original.
 for (const tool of ["shell", "bash", "run_command"]) {
   const inp = await p.before(tool, { command: `grep "${tag}" /tmp/pii.txt` })
   check(`[TAG] resolved (${tool})`, inp.command.includes("Peter Parker"), inp.command)
 }
 
-// 2) Literal: [[TAG]] -> [TAG], nie resolved
+// 2) Keep [[TAG]] literal; do not resolve it.
 for (const tool of ["shell", "bash"]) {
   const inp = await p.before(tool, { command: `grep "${dbl(tag)}" /tmp/pii.txt` })
   check(`[[TAG]] stays literal (${tool})`, inp.command.includes(tag) && !inp.command.includes("Peter Parker"), inp.command)
 }
 
-// 3) Mehrere Tags in einem Kommando, gemischt mit normalem Text
+// 3) Resolve multiple tags in one command.
 {
   const inp = await p.before("shell", {
     command: `grep -c "${tag}" file.txt && grep -o "${emailTag}" file.txt`,
@@ -76,23 +76,23 @@ for (const tool of ["shell", "bash"]) {
   )
 }
 
-// 4) Literal und resolved im selben Kommando
+// 4) Keep one tag literal and resolve another in the same command.
 {
   const inp = await p.before("shell", {
     command: `echo "${tag}" "${dbl(tag)}"`,
   })
-  check("gemischt: einmal resolved, einmal literal", inp.command === `echo "Peter Parker" "${tag}"`, "")
+  check("mixed: one resolved and one literal", inp.command === `echo "Peter Parker" "${tag}"`, "")
 }
 
-// 5) Pfad-Argument bleibt aufloesbar, Command mit Platzhalter im Filenamen
+// 5) Resolve a path argument and keep a placeholder filename literal.
 {
   const inp = await p.before("shell", { command: `cat "/tmp/${dbl(tag)}.txt"` })
   const inp2 = await p.before("read", { filePath: `/tmp/${tag}.txt` })
-  check("Filename aus [[TAG]] stays literal", inp.command === `cat "/tmp/${tag}.txt"`, "")
-  check("Pfad-Argument mit [TAG] resolved", inp2.filePath === "/tmp/Peter Parker.txt", "")
+  check("filename from [[TAG]] stays literal", inp.command === `cat "/tmp/${tag}.txt"`, "")
+  check("path argument resolves [TAG]", inp2.filePath === "/tmp/Peter Parker.txt", "")
 }
 
-// 6) Ein Befehl ganz ohne Tag bleibt unangetastet
+// 6) A command without tags stays unchanged.
 {
   const inp = await p.before("shell", { command: "ls -la /tmp | head -20" })
   check("command without tag unchanged", inp.command === "ls -la /tmp | head -20", inp.command)

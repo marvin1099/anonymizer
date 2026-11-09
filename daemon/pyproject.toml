@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "anon-local"
 version = "0.1.0"
-description = "Lokaler PII-Anonymisierer (DE+EN), einweg, usermode"
+description = "Local PII anonymizer for German and English text"
 requires-python = ">=3.12"
 dependencies = [
     "gliner>=0.2.13",

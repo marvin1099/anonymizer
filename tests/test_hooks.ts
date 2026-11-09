@@ -2,10 +2,11 @@
 // Usage: bun test_hooks.ts <mode>   (runs one mode)
 //        bun test_hooks.ts          (runs ALL modes, fresh instance per mode)
 // Prints only PASS/FAIL + placeholder snippets — never raw PII.
-import { PLUGIN_DIST, HOME_DIR } from "./helpers"
+import { PLUGIN_DIST } from "./helpers"
 
 const PII =
-  "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567, IBAN DE89 3704 0044 0532 0130 00."
+  "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 30 23125 0, IBAN DE89 3704 0044 0532 0130 00."
+const TEST_HOME = "/home/example-user"
 
 const MODES = [
   "strip-off",
@@ -85,19 +86,19 @@ async function runMode(mode: string): Promise<{ ok: boolean; note: string }> {
     ok = out !== PII && !out.includes("peter.parker@example.com")
     note = clean(out)
   } else if (mode === "base-trusted") {
-    const out = await after("read", { file_path: `${HOME_DIR}/.local/share/anonymizer/x.txt` }, PII)
+    const out = await after("read", { file_path: `${TEST_HOME}/.local/share/anonymizer/x.txt` }, PII)
     ok = out === PII
-    note = "trusted -> roh"
+    note = "trusted -> raw"
   } else if (mode === "forced-trusted") {
     await prompt("[ANON:FORCED] test")
-    const out = await after("read", { file_path: `${HOME_DIR}/.local/share/anonymizer/x.txt` }, PII)
+    const out = await after("read", { file_path: `${TEST_HOME}/.local/share/anonymizer/x.txt` }, PII)
     ok = out !== PII && !out.includes("peter.parker@example.com")
     note = clean(out)
   } else if (mode === "off") {
     await prompt("[ANON:OFF] test")
     const out = await after("read", { file_path: "/tmp/pii.txt" }, PII)
     ok = out === PII
-    note = "OFF -> roh"
+    note = "OFF -> raw"
   } else if (mode === "reverse") {
     const anon = await after("read", { file_path: "/tmp/pii.txt" }, PII)
     const p = anon.match(/\[PERSON_\d+\]/)?.[0]
@@ -111,7 +112,7 @@ async function runMode(mode: string): Promise<{ ok: boolean; note: string }> {
     const inp: any = await before("bash", { command: `grep "${p}" /tmp/pii.txt` })
     const outOff = await after("read", { file_path: "/tmp/pii.txt" }, PII)
     ok = !!p && inp.command.includes("Peter Parker") && outOff === PII
-    note = `Input resolved (${clean(inp.command)}), Output roh trotz OFF`
+    note = `Input resolved (${clean(inp.command)}), output raw despite OFF`
   } else if (mode === "reverse-stale") {
     const ev: any = { tool: "read", input: { file_path: "/tmp/pii.txt" }, status: "completed", result: { content: PII } }
     await H["execute.after"](ev)
@@ -120,25 +121,29 @@ async function runMode(mode: string): Promise<{ ok: boolean; note: string }> {
     const w: any = { tool: "write", input: { filePath: "/tmp/out.txt", content: `${p} hat angerufen` } }
     await inst2.H["execute.before"](w)
     ok = !!p && w.input.content.includes("Peter Parker")
-    note = `${p} -> ${clean(w.input.content)} (nur via Daemon)`
+    note = `${p} -> ${clean(w.input.content)} (via daemon)`
   } else if (mode === "reverse-path") {
-    const text = `Bitte File ${HOME_DIR}/.config/opencode/opencode.jsonc ansehen`
+    const text = `Please open ${TEST_HOME}/.config/opencode/opencode.jsonc`
     const ev: any = { tool: "read", input: { file_path: "/tmp/pii.txt" }, status: "completed", result: { content: text } }
     await H["execute.after"](ev)
-    const anonPath = ev.result.content.match(/\/Users\/\S+/)?.[0] ?? ""
+    const anonPath = ev.result.content.match(/\/[^\s]+/)?.[0]
+      ?? ev.result.content.match(/\[[A-Z][A-Z_]*_\d+\]/)?.[0]
+      ?? ""
     const r: any = { tool: "read", input: { filePath: anonPath } }
     await H["execute.before"](r)
-    ok = r.input.filePath === `${HOME_DIR}/.config/opencode/opencode.jsonc`
-    note = `Pfad-Arg -> ${r.input.filePath}`
+    ok = r.input.filePath === `${TEST_HOME}/.config/opencode/opencode.jsonc`
+    note = `Path argument -> ${r.input.filePath}`
   } else if (mode === "reverse-pathspan") {
-    const text = `Kontakt: Datei ${HOME_DIR}/Downloads/x.json bitte oeffnen`
+    const text = `Contact: please open the file ${TEST_HOME}/Downloads/x.json`
     const ev: any = { tool: "read", input: { file_path: "/tmp/pii.txt" }, status: "completed", result: { content: text } }
     await H["execute.after"](ev)
-    const anonPath = ev.result.content.match(/\/Users\/\S+/)?.[0] ?? ""
+    const anonPath = ev.result.content.match(/\/[^\s]+/)?.[0]
+      ?? ev.result.content.match(/\[[A-Z][A-Z_]*_\d+\]/)?.[0]
+      ?? ""
     const r: any = { tool: "read", input: { filePath: anonPath } }
     await H["execute.before"](r)
-    ok = r.input.filePath === `${HOME_DIR}/Downloads/x.json`
-    note = `Span-mit-Wort -> ${r.input.filePath}`
+    ok = r.input.filePath === `${TEST_HOME}/Downloads/x.json`
+    note = `Span with leading word -> ${r.input.filePath}`
   } else {
     throw new Error(`unknown mode ${mode}`)
   }

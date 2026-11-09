@@ -1,22 +1,17 @@
-// Gemeinsame Test-Helfer: keine Suite haelt mehr einen festen Benutzerpfad.
+// Shared test helpers. No suite embeds a developer-specific home path.
 //
-// Was auf einem frisch geklonten Rechner laeuft, ohne deine Konfiguration
-// anzufassen:
+// The test runner uses an isolated sandbox and never modifies user config:
 //
-//   * ANON_CONFIG/ANON_SOCK/ANON_STATE/ANON_SANDBOX kommen aus run.sh und
-//     zeigen in /tmp/anon-free. Dein echtes ~/.config/opencode/anonymizer.json
-//     wird NIE gelesen und NIE ueberschrieben -- siehe test_trusted.ts, die
-//     als Einzige eine eigene Config anlegt (per env, nicht per Ueberschreiben).
+//   * ANON_CONFIG/ANON_SOCK/ANON_STATE/ANON_SANDBOX come from run.sh and point
+//     to a fresh temporary directory. test_trusted.ts creates its own sandbox
+//     config via the environment; it never opens or overwrites user config.
 //
-//   * "Muss gefiltert bleiben" braucht PII IM PFAD. Der Daemon ersetzt nur
-//     Entities, ein generischer Pfad ergibt 0 Treffer und stays literal --
-//     dann ist "wird gefiltert" nicht beobachtbar. Deshalb tragen die
-//     unvertrauenswuerdigen Pfade Personen- oder Mail-Namen als Ordner.
-//     test_random.ts legt dafuer pro Lauf einen zufaelligen Ordner an.
+//   * Tests that require filtering use an entity in the path. A generic path
+//     has no matches and stays literal, so the filtering would not be visible.
+//     randomUntrusted() creates a unique path for those cases.
 //
-//   * Pfade, die ROH bleiben sollen, muessen in der Allowlist liegen. Das
-//     sind die eingebauten Pfade (BUILTIN_RAW) oder die Sandbox-Ordner, die
-//     run.sh in die Sandbox-Config eintraegt (TRUSTED_*).
+//   * Paths that should remain raw must be allowlisted: either built-in paths
+//     (BUILTIN_RAW) or sandbox paths (TRUSTED_*).
 import { connect } from "node:net"
 import { homedir } from "node:os"
 import { resolve } from "node:path"
@@ -24,11 +19,11 @@ import { mkdirSync, writeFileSync } from "node:fs"
 
 const HOME = homedir()
 
-// Repo-Root aus dieser File abgeleitet: die Tests testen IMMER den Build,
-// der im Repo liegt (frisch geklont -> plugin/dist existiert nach run.sh).
+// Derive the repo root from this file so tests always use this checkout's
+// plugin build (created by run.sh).
 const REPO = resolve(import.meta.dir, "..")
 
-// Sandbox -- nur gesetzt, wenn ueber run.sh gestartet wird.
+// The runner sets this to a fresh temporary directory.
 export const SANDBOX = process.env.ANON_SANDBOX ?? "/tmp/anon-free"
 
 // Plugin-Quelle: Repo-Build, damit die Tests die File testen, die im Repo liegt.
@@ -38,45 +33,39 @@ export const PLUGIN_DIST = process.env.ANON_PLUGIN ?? resolve(REPO, "plugin/dist
 export const SOCK = process.env.ANON_SOCK ?? `${SANDBOX}/share/anon.sock`
 export const STATE = process.env.ANON_STATE ?? `${SANDBOX}/share/state.json`
 
-// Die Sandbox-Config, die run.sh anlegt -- NIEMALS der echte Benutzer-Pfad.
+// Sandbox config created by run.sh; never use the user's real config.
 export const SANDBOX_CONFIG = process.env.ANON_CONFIG ?? `${SANDBOX}/config/anonymizer.json`
 
-// In der Sandbox-Config als vertrauenswuerdig eingetragen -> roh.
+// Listed as trusted in the sandbox config, so content stays raw.
 export const TRUSTED_DIR = `${SANDBOX}/trusted`
 export const TRUSTED_FILE = `${TRUSTED_DIR}/notiz.md`
 
-// In der Allowlist eingebaut, NICHT gesperrt -> roh, unabhaengig von Config.
-// Braucht die File nicht zu existieren: die Entscheidung ist reine Zeichenketten-
-// Pruefung (substring auf dem Pfad-Argument).
+// Built-in allowlist path that is not denied. The file need not exist; the
+// plugin makes its decision by inspecting the path string.
 export const BUILTIN_RAW = `${HOME}/.config/opencode/plugins/x/y.ts`
 
-// Sperrliste: schlaegt JEDE Allowlist. Absichtlich INNERHALB eines vertrauens-
-// wuerdigen Ordners konstruiert -- nur so testet man, dass die Sperre gewinnt.
-// Haengt an keinem Benutzerpfad (die Serrliste matcht auf Suffixe).
+// Denylist path nested inside a trusted folder, verifying that deny rules
+// override allow rules. Matching is based on path suffixes.
 export const DENIED = `${TRUSTED_DIR}/.local/share/anonymizer/state.json`
 
-// Absolut, in der Allowlist, aber ohne Entity im Pfad: der Pfad selbst bleibt
-// literal, der INHALT wird gefiltert. Nur fuer "Inhalt gefiltert" geeignet --
-// um zu sehen, dass der PFAD ersetzt wird, braucht es PII im Pfad (unten).
+// Absolute path in the allowlist but without an entity: the path stays literal,
+// while its content is filtered. Use a path with an entity to test path masking.
 export const LITERAL = `${SANDBOX}/fremd/datei.md`
 
-export const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 170 1234567."
+export const PII = "Peter Parker aus Berlin, peter.parker@example.com, Telefon +49 30 23125 0."
 
-/** Fail-fast: ohne Sandbox-Umgebung zeigen die Tests gegen den falschen Daemon
- *  (den echten) und wuerden dessen State durcheinanderbringen. */
+/** Fail fast if tests are not using an isolated daemon and state directory. */
 export function ensureSandboxEnv(): void {
   const missing = ["ANON_SOCK", "ANON_STATE", "ANON_CONFIG"].filter((k) => !process.env[k])
   if (missing.length) {
     throw new Error(
       `Tests ohne Sandbox-Umgebung (fehlt: ${missing.join(", ")}).\n` +
-        `Starte sie ueber tests/run.sh -- der isoliert Daemon, Config und State in ${SANDBOX}.`,
+      `Run tests/run.sh to isolate the daemon, config, and state in ${SANDBOX}.`,
     )
   }
 }
 
-/** Pro Lauf ein zufaelliger Ordner mit Personen-Name im Pfad. Damit ist
- *  "fremd" abschliessend fremd: nirgends eingetragen, und der Daemon sieht
- *  eine Entity, also wird der Pfad wirklich ersetzt. */
+/** Create a unique untrusted path containing an entity so path masking is visible. */
 export function randomUntrusted(): string {
   const dir = `${SANDBOX}/Anna Mueller-${Math.random().toString(36).slice(2, 8)}`
   mkdirSync(dir, { recursive: true })
@@ -85,8 +74,7 @@ export function randomUntrusted(): string {
   return file
 }
 
-/** Plugin frisch laden und die Hooks abfangen. Pro Fall eigene Instanz,
- *  damit Marker-Zaehler (singleOff/singleForce/anonOff) nicht ueberlaufen. */
+/** Load a fresh plugin instance and capture its hooks for an isolated case. */
 export async function freshPlugin(): Promise<Record<string, (e: any) => Promise<void> | void>> {
   const mod: any = await import(`${PLUGIN_DIST}?case=${Math.random()}`)
   const d: any = mod?.default ?? mod
@@ -100,7 +88,7 @@ export async function freshPlugin(): Promise<Record<string, (e: any) => Promise<
   return H
 }
 
-/** Marker-Verarbeitung: der Prompt-Hook laeuft VOR der Anfrage. */
+/** Process prompt markers before a request. */
 export async function runPrompt(text: string, H?: Record<string, any>): Promise<string> {
   const hooks = H ?? (await freshPlugin())
   const ev: any = { prompt: { text } }
@@ -108,8 +96,7 @@ export async function runPrompt(text: string, H?: Record<string, any>): Promise<
   return ev.prompt.text as string
 }
 
-/** Ein Tool-Ergebnis durch den Filter schicken. Wichtig: mehrere Aufrufe
- *  muessen dieselbe Instanz nehmen (H), sonst zaehlen die Marker neu los. */
+/** Filter a tool result. Reuse the same hook instance to preserve marker state. */
 export async function after(
   H: Record<string, any>,
   input: unknown,
@@ -124,9 +111,8 @@ export async function after(
 export const HOME_DIR = HOME
 
 export const isRaw = (s: string) => s === PII
-// WICHTIG: "[ANON_ERROR]" entsteht, wenn der Daemon nicht antwortet. Das ist
-// ein TESTFAILURES, kein Beweis fuer Filterung -- sonst waere ein toter Daemon
-// ein gruener Test.
+// [ANON_ERROR] means the daemon did not respond; it must not count as a
+// successful filtering result.
 export const isAnon = (s: string) =>
   !s.includes("peter.parker@example.com") && s.includes("[") && !s.includes("[ANON_ERROR]")
 
@@ -140,7 +126,7 @@ export function finish(label: string): never {
   process.exit(failures === 0 ? 0 : 1)
 }
 
-/** Daemon-Anfrage ueber den Sandbox-Socket. */
+/** Send a daemon request over the sandbox socket. */
 export function send(payload: unknown): Promise<any | null> {
   return new Promise((resolve) => {
     const s = connect(SOCK)
