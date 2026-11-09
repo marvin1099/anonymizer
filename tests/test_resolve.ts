@@ -36,28 +36,28 @@ function check(name: string, ok: boolean, info = "") {
 }
 
 // --- 1. Pfad anonymisieren: was sieht das Modell? -------------------------
-const text = "Bitte die Datei ${HOME_DIR}/.config/opencode/opencode.jsonc öffnen, Kontakt Anna Müller (01701234567)."
+const text = "Bitte die File ${HOME_DIR}/.config/opencode/opencode.jsonc öffnen, Contact Anna Müller (01701234567)."
 const resp = await send({ text, opts: {} })
-check("Daemon antwortet", !!resp?.ok)
+check("daemon responds", !!resp?.ok)
 const anonymized = resp.text
-console.log(`      Modell sieht: ${anonymized}`)
+console.log(`      Model sees: ${anonymized}`)
 const tag = anonymized.match(/\[[A-Z][A-Z_]*_\d+\]/)?.[0]
-check("Pfad wurde anonymisiert", !!anonymized.includes("["), anonymized.split(" ")[3])
+check("Path was anonymized", !!anonymized.includes("["), anonymized.split(" ")[3])
 
 // --- 2. simulate plugin reload: LEERE mapping, nur Daemon-Reverse ---------
 const rev = await send({ resolve: [tag] })
 const mapped = rev?.map?.[tag]
-check("Reverse-Lookup liefert Original", !!mapped && mapped !== tag, `${tag} -> ${mapped}`)
+check("Reverse lookup returns original", !!mapped && mapped !== tag, `${tag} -> ${mapped}`)
 
 const path = anonymized.split(" ").find((w: string) => w.includes("${HOME_DIR}"))
 const resolvedPath = path ? path.split(tag ?? "").join(mapped ?? "") : ""
-check("Pfad wieder vollstaendig", resolvedPath === "${HOME_DIR}/.config/opencode/opencode.jsonc", resolvedPath)
+check("Path restored", resolvedPath === "${HOME_DIR}/.config/opencode/opencode.jsonc", resolvedPath)
 
 // --- 3. Alle Placeholder der Textstelle aufloesbar -------------------------
 const allTags = [...anonymized.matchAll(/\[([A-Z][A-Z_]*_\d+)\]/g)].map((m) => m[0])
 const revAll = await send({ resolve: allTags })
 check(
-  "Alle Tags der Textstelle aufloesbar",
+  "All tags in text resolvable",
   allTags.every((t) => !!revAll?.map?.[t]),
   allTags.map((t) => `${t}=${revAll?.map?.[t]}`).join(", "),
 )
@@ -69,14 +69,14 @@ if (f && g) {
   const swapped = `[PERSON_2] ${g.split(" ")[1]} und [PERSON_1] ${f.split(" ")[1]}`
     .replace("[PERSON_1]", g)
     .replace("[PERSON_2]", f)
-  check("Swap aufloesbar", swapped.includes(f) && swapped.includes(g), swapped)
+  check("swap resolvable", swapped.includes(f) && swapped.includes(g), swapped)
 } else {
   console.log("SKIP  Swap (nur ein PERSON im Text)")
 }
 
 // --- 5. Unbekannter Tag bleibt unangetastet -------------------------------
 const revUnknown = await send({ resolve: ["[PERSON_999]"] })
-check("Unbekannter Tag liefert nichts", !revUnknown?.map?.["[PERSON_999]"])
+check("Unknown tag yields nothing", !revUnknown?.map?.["[PERSON_999]"])
 
-console.log(failures === 0 ? "\n== ALLE TESTS BESTANDEN ==" : `\n== ${failures} FEHLER ==`)
+console.log(failures === 0 ? "\n== ALL TESTS PASSED ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)

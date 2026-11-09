@@ -1,4 +1,4 @@
-// Invariante: [TAG] wird IMMER aufgeloest, unabhaengig von jedem Marker-
+// Invariante: [TAG] wird IMMER resolved, unabhaengig von jedem Marker-
 // zustand. [[TAG]] bleibt immer literal. Das Reverse darf nie davon
 // abhaengen, ob die Filterung an oder aus ist -- es laeuft ja in der anderen
 // Richtung (Tool-Eingabe), nicht bei der Ausgabe.
@@ -55,11 +55,11 @@ const p = await fresh()
 const anon = await p.after(PII)
 const tag = anon.match(/\[PERSON_\d+\]/)?.[0] ?? ""
 const real = bare(tag) === "PERSON_1" ? "Peter Parker" : bare(tag)
-check("Tag + Original ermittelt", !!tag, `${tag} -> ${real}`)
+check("Tag + original determined", !!tag, `${tag} -> ${real}`)
 
 // Alle Markerzustaende durchprobieren
 const states: Array<[string, string]> = [
-  ["ohne Marker", "ganz normale Nachricht"],
+  ["without marker", "ganz normale Nachricht"],
   ["[ANON:OFF]", "[ANON:OFF] arbeite mit Rohdaten"],
   ["[ANON:S-OFF]", "[ANON:S-OFF] einmal roh"],
   ["[ANON:FORCED]", "[ANON:FORCED] filter streng"],
@@ -69,7 +69,7 @@ const states: Array<[string, string]> = [
 for (const [name, msg] of states) {
   await p.prompt(msg)
 
-  // 1) Kommando: [TAG] aufgeloest
+  // 1) Kommando: [TAG] resolved
   const cmd = await p.before("shell", { command: `grep "${tag}" f.txt` })
   check(`${name}: Kommando loest [TAG] auf`, cmd.command.includes(real), "")
 
@@ -77,7 +77,7 @@ for (const [name, msg] of states) {
   const esc = await p.before("shell", { command: `grep "${dbl(tag)}" f.txt` })
   check(`${name}: Kommando laesst [[TAG]] literal`, esc.command.includes(tag) && !esc.command.includes(real), "")
 
-  // 3) Schreib-Inhalt: [TAG] aufgeloest
+  // 3) Schreib-Inhalt: [TAG] resolved
   const w = await p.before("write", { filePath: "/tmp/o.txt", content: `${tag} Notiz` })
   check(`${name}: write loest [TAG] auf`, w.content.includes(real), "")
 
@@ -85,10 +85,10 @@ for (const [name, msg] of states) {
   const w2 = await p.before("write", { filePath: "/tmp/o.txt", content: `${dbl(tag)} Beispiel` })
   check(`${name}: write laesst [[TAG]] literal`, w2.content.includes(tag) && !w2.content.includes(real), "")
 
-  // 5) Pfad-Argument: [TAG] aufgeloest
+  // 5) Pfad-Argument: [TAG] resolved
   const r = await p.before("read", { filePath: `/tmp/${tag}.txt` })
   check(`${name}: Pfad-Argument loest auf`, r.filePath.includes(real), "")
 }
 
-console.log(failures === 0 ? "\n== REVERSE IMMER AKTIV ==" : `\n== ${failures} FEHLER ==`)
+console.log(failures === 0 ? "\n== REVERSE ALWAYS ACTIVE ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)

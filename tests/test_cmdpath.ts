@@ -1,4 +1,4 @@
-// Kommando-Pfad: [TAG] wird aufgeloest, [[TAG]] bleibt literal.
+// Kommando-Pfad: [TAG] wird resolved, [[TAG]] stays literal.
 // Deckt auch den Toolnamen-Unterschied ab ("shell" vs "bash" vs sonstige).
 // Aufruf: bun test_cmdpath.ts
 import { PLUGIN_DIST, HOME_DIR } from "./helpers"
@@ -50,18 +50,18 @@ const p = await fresh()
 const anon = await p.after(PII)
 const tag = anon.match(/\[PERSON_\d+\]/)?.[0] ?? ""
 const emailTag = anon.match(/\[EMAIL_\d+\]/)?.[0] ?? ""
-check("Tag erzeugt", !!tag, `${tag} / ${emailTag}`)
+check("tag created", !!tag, `${tag} / ${emailTag}`)
 
 // 1) Aufloesen: [TAG] -> Original
 for (const tool of ["shell", "bash", "run_command"]) {
   const inp = await p.before(tool, { command: `grep "${tag}" /tmp/pii.txt` })
-  check(`[TAG] aufgeloest (${tool})`, inp.command.includes("Peter Parker"), inp.command)
+  check(`[TAG] resolved (${tool})`, inp.command.includes("Peter Parker"), inp.command)
 }
 
-// 2) Literal: [[TAG]] -> [TAG], nie aufgeloest
+// 2) Literal: [[TAG]] -> [TAG], nie resolved
 for (const tool of ["shell", "bash"]) {
   const inp = await p.before(tool, { command: `grep "${dbl(tag)}" /tmp/pii.txt` })
-  check(`[[TAG]] bleibt literal (${tool})`, inp.command.includes(tag) && !inp.command.includes("Peter Parker"), inp.command)
+  check(`[[TAG]] stays literal (${tool})`, inp.command.includes(tag) && !inp.command.includes("Peter Parker"), inp.command)
 }
 
 // 3) Mehrere Tags in einem Kommando, gemischt mit normalem Text
@@ -70,33 +70,33 @@ for (const tool of ["shell", "bash"]) {
     command: `grep -c "${tag}" file.txt && grep -o "${emailTag}" file.txt`,
   })
   check(
-    "zwei Tags im selben Kommando",
+    "two tags in same command",
     inp.command.includes("Peter Parker") && inp.command.includes("peter.parker@example.com"),
     inp.command,
   )
 }
 
-// 4) Literal und aufgeloest im selben Kommando
+// 4) Literal und resolved im selben Kommando
 {
   const inp = await p.before("shell", {
     command: `echo "${tag}" "${dbl(tag)}"`,
   })
-  check("gemischt: einmal aufgeloest, einmal literal", inp.command === `echo "Peter Parker" "${tag}"`, "")
+  check("gemischt: einmal resolved, einmal literal", inp.command === `echo "Peter Parker" "${tag}"`, "")
 }
 
-// 5) Pfad-Argument bleibt aufloesbar, Command mit Platzhalter im Dateinamen
+// 5) Pfad-Argument bleibt aufloesbar, Command mit Platzhalter im Filenamen
 {
   const inp = await p.before("shell", { command: `cat "/tmp/${dbl(tag)}.txt"` })
   const inp2 = await p.before("read", { filePath: `/tmp/${tag}.txt` })
-  check("Dateiname aus [[TAG]] bleibt literal", inp.command === `cat "/tmp/${tag}.txt"`, "")
-  check("Pfad-Argument mit [TAG] aufgeloest", inp2.filePath === "/tmp/Peter Parker.txt", "")
+  check("Filename aus [[TAG]] stays literal", inp.command === `cat "/tmp/${tag}.txt"`, "")
+  check("Pfad-Argument mit [TAG] resolved", inp2.filePath === "/tmp/Peter Parker.txt", "")
 }
 
 // 6) Ein Befehl ganz ohne Tag bleibt unangetastet
 {
   const inp = await p.before("shell", { command: "ls -la /tmp | head -20" })
-  check("Kommando ohne Tag unveraendert", inp.command === "ls -la /tmp | head -20", inp.command)
+  check("command without tag unchanged", inp.command === "ls -la /tmp | head -20", inp.command)
 }
 
-console.log(failures === 0 ? "\n== KOMMANDO-PFAD BESTAETIGT ==" : `\n== ${failures} FEHLER ==`)
+console.log(failures === 0 ? "\n== COMMAND PATH CONFIRMED ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)

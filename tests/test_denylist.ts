@@ -41,7 +41,7 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
 
 const after = await fresh()
 
-// 1) Gesperrte Dateien: immer gefiltert, auch in trusted Pfaden
+// 1) Gesperrte Fileen: immer gefiltert, auch in trusted Pfaden
 const blocked = [
   `${HOME_DIR}/.local/share/anonymizer/state.json`,
   `${HOME_DIR}/.local/share/opencode/opencode.db`,
@@ -54,10 +54,10 @@ const blocked = [
   `${HOME_DIR}/.config/opencode/cli.json`,
 ]
 for (const f of blocked) {
-  check(`gesperrt: ${f.split("/").slice(-2).join("/")}`, isAnon(await after(f)))
+  check(`blocked: ${f.split("/").slice(-2).join("/")}`, isAnon(await after(f)))
 }
 
-// 2) Nicht gesperrte Dateien in denselben trusted Ordnern bleiben roh
+// 2) Nicht gesperrte Fileen in denselben trusted Ordnern bleiben roh
 const allowed = [
   `${HOME_DIR}/.local/share/anonymizer/anonymizer/engine.py`,
   `${HOME_DIR}/.local/share/anonymizer/test_hooks.ts`,
@@ -66,8 +66,8 @@ const allowed = [
   `${SANDBOX}/roh/etwas.sh`,                 // nur ueber Sandbox-Config vertraut
 ]
 for (const f of allowed) {
-  check(`erlaubt (roh): ${f.split("/").slice(-2).join("/")}`, raw(await after(f)))
+  check(`allowed (raw): ${f.split("/").slice(-2).join("/")}`, raw(await after(f)))
 }
 
-console.log(failures === 0 ? "\n== SPERRLISTE WIRKT ==" : `\n== ${failures} FEHLER ==`)
+console.log(failures === 0 ? "\n== DENYLIST WORKS ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)

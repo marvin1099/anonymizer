@@ -63,7 +63,7 @@ def _load_state() -> dict:
     except FileNotFoundError:
         pass
     except Exception as e:  # noqa: BLE001
-        print(f"[serve] WARN state nicht lesbar: {e}", flush=True)
+        print(f"[serve] WARN state not readable: {e}", flush=True)
     return {"counters": {}, "seen": {}, "exact": {}}
 
 
@@ -93,7 +93,7 @@ def _save_state(state: dict) -> None:
             os.unlink(STATE_PATH + ".tmp")
         except OSError:
             pass
-        print(f"[serve] WARN state nicht speicherbar: {e}", flush=True)
+        print(f"[serve] WARN state not writable: {e}", flush=True)
 
 
 def _preload():
@@ -235,7 +235,7 @@ def serve(socket_path: str = SOCKET_PATH) -> None:
     _preload()
     state: dict = _load_state()
     print(
-        f"[serve] state geladen: {len(state.get('exact', {}))} Platzhalter", flush=True
+        f"[serve] state loaded: {len(state.get('exact', {}))} placeholders", flush=True
     )
 
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

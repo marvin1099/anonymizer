@@ -1,5 +1,5 @@
 // Auswege aus der Sperrliste:
-//   Default        -> gesperrte Dateien gefiltert
+//   Default        -> gesperrte Fileen gefiltert
 //   [ANON:RAW]     -> nur die gesperrten Pfade roh, sonst bleibt alles gefiltert
 //   [ANON:OFF]        -> alles roh
 // Aufruf: bun test_raw.ts
@@ -56,20 +56,20 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
 // 1) Default: Sperre gilt
 {
   const p = await fresh()
-  check("Default: gesperrt gefiltert", isAnon(await p.after(DENIED)))
-  check("Default: trusted roh", raw(await p.after(TRUSTED)))
-  check("Default: fremd gefiltert", isAnon(await p.after(NORMAL)))
+  check("Default: blocked filtered", isAnon(await p.after(DENIED)))
+  check("Default: trusted raw", raw(await p.after(TRUSTED)))
+  check("Default: foreign filtered", isAnon(await p.after(NORMAL)))
 }
 
 // 2) [ANON:RAW]: hebt NUR die Sperre
 {
   const p = await fresh()
   const t = await p.prompt("[ANON:RAW] ich editiere opencode selbst")
-  check("RAW: gesperrt jetzt roh", raw(await p.after(DENIED)))
-  check("RAW: fremde Datei bleibt gefiltert", isAnon(await p.after(NORMAL)))
-  check("RAW: trusted bleibt roh", raw(await p.after(TRUSTED)))
-  check("RAW: Marker bleibt sichtbar", t.includes("ANON:RAW"), JSON.stringify(t))
-  check("RAW: Hinweis-Toast", p.toasts.some((x) => /Gesperrte Pfade/.test(x)), p.toasts[0] ?? "-")
+  check("RAW: blocked now raw", raw(await p.after(DENIED)))
+  check("RAW: foreign file stays filtered", isAnon(await p.after(NORMAL)))
+  check("RAW: trusted stays raw", raw(await p.after(TRUSTED)))
+  check("RAW: marker stays visible", t.includes("ANON:RAW"), JSON.stringify(t))
+  check("RAW: hint toast", p.toasts.some((x) => /Blocked paths/.test(x)), p.toasts[0] ?? "-")
 }
 
 // 3) RAW endet mit der Nachricht
@@ -77,20 +77,20 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   const p = await fresh()
   await p.prompt("[ANON:RAW] erste Anfrage")
   await p.after(DENIED)
-  await p.prompt("zweite Anfrage ohne Marker")
-  check("RAW: endet bei markerloser Folgenachricht", isAnon(await p.after(DENIED)))
+  await p.prompt("zweite Anfrage without marker")
+  check("RAW: ends on marker-less follow-up", isAnon(await p.after(DENIED)))
 }
 
 // 4) Voll-Ausweg OFF bleibt moeglich
 {
   const p = await fresh()
   await p.prompt("[ANON:OFF] alles roh")
-  check("OFF: gesperrt roh", raw(await p.after(DENIED)))
-  check("OFF: fremde Datei auch roh", raw(await p.after(NORMAL)))
+  check("OFF: blocked raw", raw(await p.after(DENIED)))
+  check("OFF: foreign file raw too", raw(await p.after(NORMAL)))
 }
 
 {
   const p = await fresh()
 }
-console.log(failures === 0 ? "\n== AUSWEGE KORREKT ==" : `\n== ${failures} FEHLER ==`)
+console.log(failures === 0 ? "\n== ESCAPES CORRECT ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)

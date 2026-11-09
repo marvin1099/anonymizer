@@ -111,7 +111,7 @@ async function runMode(mode: string): Promise<{ ok: boolean; note: string }> {
     const inp: any = await before("bash", { command: `grep "${p}" /tmp/pii.txt` })
     const outOff = await after("read", { file_path: "/tmp/pii.txt" }, PII)
     ok = !!p && inp.command.includes("Peter Parker") && outOff === PII
-    note = `Input aufgeloest (${clean(inp.command)}), Output roh trotz OFF`
+    note = `Input resolved (${clean(inp.command)}), Output roh trotz OFF`
   } else if (mode === "reverse-stale") {
     const ev: any = { tool: "read", input: { file_path: "/tmp/pii.txt" }, status: "completed", result: { content: PII } }
     await H["execute.after"](ev)
@@ -122,7 +122,7 @@ async function runMode(mode: string): Promise<{ ok: boolean; note: string }> {
     ok = !!p && w.input.content.includes("Peter Parker")
     note = `${p} -> ${clean(w.input.content)} (nur via Daemon)`
   } else if (mode === "reverse-path") {
-    const text = `Bitte Datei ${HOME_DIR}/.config/opencode/opencode.jsonc ansehen`
+    const text = `Bitte File ${HOME_DIR}/.config/opencode/opencode.jsonc ansehen`
     const ev: any = { tool: "read", input: { file_path: "/tmp/pii.txt" }, status: "completed", result: { content: text } }
     await H["execute.after"](ev)
     const anonPath = ev.result.content.match(/\/Users\/\S+/)?.[0] ?? ""

@@ -306,7 +306,7 @@ async function anonymize(text: string): Promise<string> {
   const armTimer = setTimeout(() => {
     shown = true
     lastAt = Date.now()
-    toast(big ? "Groesse Text wird analysiert …" : "Anonymisiere …", "info")
+    toast(big ? "Analyzing large text…" : "Anonymizing…", "info")
   }, 700)
 
   const resp = await requestStreaming(text, (done, total) => {
@@ -317,13 +317,13 @@ async function anonymize(text: string): Promise<string> {
       if (now - t0 < 700) return
       shown = true
       lastAt = now
-      toast("Anonymisiere …", "info")
+      toast("Anonymizing…", "info")
       return
     }
     if (now - lastAt < 900) return // nicht flackern
     lastAt = now
     const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
-    toast(`${done}/${total} Abschnitte · ${pct} %`, "info")
+    toast(`${done}/${total} sections · ${pct} %`, "info")
   })
   clearTimeout(armTimer)
 
@@ -340,7 +340,7 @@ async function anonymize(text: string): Promise<string> {
   const secs = (Date.now() - t0) / 1000
   if (secs > 2) {
     const n = (resp.replacements ?? []).length
-    toast(`${n} Treffer in ${secs.toFixed(1)} s`, "success")
+    toast(`${n} matches in ${secs.toFixed(1)} s`, "success")
   }
   return resp.text
 }
@@ -438,7 +438,7 @@ export default Plugin.define({
       // wieder geschuetzt -- unabhaengig davon, was davor lief. Einmal-Marker
       // verfallen ebenfalls, damit kein unueberwachtes Rohdatenfenster
       // offen bleibt.
-      if (anonOff) toast("Anonymisierung wieder aktiv (kein Marker)", "success")
+      if (anonOff) toast("Anonymization re-enabled (no marker)", "success")
       anonOff = false
       rawPaths = false
       forceTokens = 0
@@ -454,17 +454,17 @@ export default Plugin.define({
         if (m.strip) text = text.replace(m.re, "").trimStart()
         if (label === "ANON:S-OFF") {
           singleOff += hits.length
-          toast(`S-OFF: naechste ${hits.length} Tool-Ausgabe(n) roh`, "warning")
+          toast(`S-OFF: next ${hits.length} tool result(s) raw`, "warning")
         } else if (label === "ANON:S-FORCE") {
           singleForce += hits.length
         } else if (label === "ANON:RAW") {
           rawPaths = true
-          toast("Gesperrte Pfade sind lesbar (nur diese Anfrage)", "warning", "Anonymizer", 6000)
+          toast("Blocked paths readable (this request only)", "warning", "Anonymizer", 6000)
         } else if (label === "ANON:OFF") {
           anonOff = true
         } else if (label === "ANON:ON") {
           anonOff = false
-          toast("Anonymisierung wieder aktiv", "success")
+          toast("Anonymization re-enabled", "success")
         } else if (label === "ANON:FORCE" || label === "ANON:FORCED") {
           forceTokens += hits.length
         }
@@ -479,7 +479,7 @@ export default Plugin.define({
       const unknown = scan.match(/(?<!\[)\[ANON:[A-Z][A-Z:-]*\](?!\])/g)
       if (unknown?.length) {
         toast(
-          `Unbekannter Marker ${unknown[0]} — moeglich waere [[ANON:OFF]], [[ANON:ON]], [[ANON:FORCED]], [[ANON:S-OFF]], [[ANON:S-FORCE]] oder [[ANON:RAW]]`,
+          `Unknown marker ${unknown[0]} — possible: [[ANON:OFF]], [[ANON:ON]], [[ANON:FORCED]], [[ANON:S-OFF]], [[ANON:S-FORCE]] or [[ANON:RAW]]`,
           "warning",
           "Anonymizer",
           7000,
@@ -491,7 +491,7 @@ export default Plugin.define({
       //    literalen DOPPELTEN Text auf der Platte braucht es [[[PERSON_1]]].
       text = text.replace(/\[\[([A-Z][A-Z0-9_:-]*)\]\]/g, "[$1]")
       if (anonOff) {
-        toast("Anonymisierung ist AUS — endet bei der nächsten Nachricht ohne Marker", "warning", "Anonymizer", 5000)
+        toast("Anonymization is OFF — ends with the next marker-less message", "warning", "Anonymizer", 5000)
       }
       event.prompt.text = text
     })

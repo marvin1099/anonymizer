@@ -9,7 +9,7 @@
 //     als Einzige eine eigene Config anlegt (per env, nicht per Ueberschreiben).
 //
 //   * "Muss gefiltert bleiben" braucht PII IM PFAD. Der Daemon ersetzt nur
-//     Entities, ein generischer Pfad ergibt 0 Treffer und bleibt literal --
+//     Entities, ein generischer Pfad ergibt 0 Treffer und stays literal --
 //     dann ist "wird gefiltert" nicht beobachtbar. Deshalb tragen die
 //     unvertrauenswuerdigen Pfade Personen- oder Mail-Namen als Ordner.
 //     test_random.ts legt dafuer pro Lauf einen zufaelligen Ordner an.
@@ -24,14 +24,14 @@ import { mkdirSync, writeFileSync } from "node:fs"
 
 const HOME = homedir()
 
-// Repo-Root aus dieser Datei abgeleitet: die Tests testen IMMER den Build,
+// Repo-Root aus dieser File abgeleitet: die Tests testen IMMER den Build,
 // der im Repo liegt (frisch geklont -> plugin/dist existiert nach run.sh).
 const REPO = resolve(import.meta.dir, "..")
 
 // Sandbox -- nur gesetzt, wenn ueber run.sh gestartet wird.
 export const SANDBOX = process.env.ANON_SANDBOX ?? "/tmp/anon-free"
 
-// Plugin-Quelle: Repo-Build, damit die Tests die Datei testen, die im Repo liegt.
+// Plugin-Quelle: Repo-Build, damit die Tests die File testen, die im Repo liegt.
 export const PLUGIN_DIST = process.env.ANON_PLUGIN ?? resolve(REPO, "plugin/dist/index.js")
 
 // Socket und State der Sandbox: eigener Daemon, eigener Zaehlerstand.
@@ -46,7 +46,7 @@ export const TRUSTED_DIR = `${SANDBOX}/trusted`
 export const TRUSTED_FILE = `${TRUSTED_DIR}/notiz.md`
 
 // In der Allowlist eingebaut, NICHT gesperrt -> roh, unabhaengig von Config.
-// Braucht die Datei nicht zu existieren: die Entscheidung ist reine Zeichenketten-
+// Braucht die File nicht zu existieren: die Entscheidung ist reine Zeichenketten-
 // Pruefung (substring auf dem Pfad-Argument).
 export const BUILTIN_RAW = `${HOME}/.config/opencode/plugins/x/y.ts`
 
@@ -125,7 +125,7 @@ export const HOME_DIR = HOME
 
 export const isRaw = (s: string) => s === PII
 // WICHTIG: "[ANON_ERROR]" entsteht, wenn der Daemon nicht antwortet. Das ist
-// ein TESTFEHLER, kein Beweis fuer Filterung -- sonst waere ein toter Daemon
+// ein TESTFAILURES, kein Beweis fuer Filterung -- sonst waere ein toter Daemon
 // ein gruener Test.
 export const isAnon = (s: string) =>
   !s.includes("peter.parker@example.com") && s.includes("[") && !s.includes("[ANON_ERROR]")
@@ -136,7 +136,7 @@ export function check(name: string, ok: boolean, info = ""): void {
   if (!ok) failures++
 }
 export function finish(label: string): never {
-  console.log(failures === 0 ? `\n== ${label} ==` : `\n== ${failures} FEHLER ==`)
+  console.log(failures === 0 ? `\n== ${label} ==` : `\n== ${failures} FAILURES ==`)
   process.exit(failures === 0 ? 0 : 1)
 }
 

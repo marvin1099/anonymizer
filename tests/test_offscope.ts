@@ -53,17 +53,17 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
 {
   const p = await fresh()
   await p.prompt("[ANON:OFF] schau mal")
-  check("einfache Klammer wirkt ebenfalls", raw(await p.after(PII)))
+  check("single bracket works too", raw(await p.after(PII)))
 }
 {
   const p = await fresh()
   await p.prompt("[ANON:OFF] schau mal")
-  check("doppelte Klammer wirkt", raw(await p.after(PII)))
+  check("double bracket works", raw(await p.after(PII)))
 }
 {
   const p = await fresh()
-  const t = await p.prompt("kannst du bitte [ANON:OFF] die Datei lesen?")
-  check("Position egal (mitten im Text)", !t.includes("ANON:OFF") && raw(await p.after(PII)))
+  const t = await p.prompt("kannst du bitte [ANON:OFF] die File lesen?")
+  check("position irrelevant (mid-text)", !t.includes("ANON:OFF") && raw(await p.after(PII)))
 }
 
 // 2) OFF endet bei der naechsten Nachricht OHNE Marker (kein [[ANON:ON]] noetig)
@@ -73,10 +73,10 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   await p.after(PII)                                        // 1. Anfrage: roh
   await p.prompt("zweite Anfrage, kein Marker")
   const second = await p.after(PII)
-  check("Marker-lose Nachricht schaltet wieder zu", isAnon(second), second.slice(0, 40))
+  check("marker-less message re-arms", isAnon(second), second.slice(0, 40))
   await p.prompt("dritte Anfrage, kein Marker")
-  check("bleibt auch in der dritten gefiltert", isAnon(await p.after(PII)))
-  check("Hinweis-Toast beim Re-Arm", p.toasts.some((t) => /wieder aktiv/.test(t)), p.toasts[0] ?? "-")
+  check("stays filtered in third", isAnon(await p.after(PII)))
+  check("hint toast on re-arm", p.toasts.some((t) => /re-enabled/.test(t)), p.toasts[0] ?? "-")
 }
 
 // 2b) OFF ueberlebt Folgeanfragen nur MIT erneutem Marker
@@ -84,17 +84,17 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   const p = await fresh()
   await p.prompt("[ANON:OFF] erste Anfrage")
   await p.prompt("[ANON:OFF] zweite Anfrage, Marker erneut")
-  check("OFF mit erneutem Marker in Folgeanfrage", raw(await p.after(PII)), raw(await p.after(PII)) ? "roh" : "gefiltert")
-  await p.prompt("dritte Anfrage ohne Marker")
-  check("danach wieder gefiltert", isAnon(await p.after(PII)))
+  check("OFF with repeated marker", raw(await p.after(PII)), raw(await p.after(PII)) ? "roh" : "gefiltert")
+  await p.prompt("dritte Anfrage without marker")
+  check("filtered again after", isAnon(await p.after(PII)))
 }
 
 // 2c) Warn-Toast solange OFF laeuft
 {
   const p = await fresh()
   await p.prompt("[ANON:OFF] Anfrage")
-  check("Warn-Toast bei OFF aktiv", p.toasts.some((t) => /Anonymisierung ist AUS/.test(t)), p.toasts[0] ?? "-")
-  check("OFF-Tontext nennt das Ende", p.toasts.some((t) => /nächsten Nachricht ohne Marker/.test(t)))
+  check("warning toast when OFF active", p.toasts.some((t) => /Anonymization is OFF/.test(t)), p.toasts[0] ?? "-")
+  check("OFF text mentions end", p.toasts.some((t) => /marker-less message/.test(t)))
 }
 
 // 2d) [[ANON:ON]] schaltet auch sofort zurueck
@@ -102,8 +102,8 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   const p = await fresh()
   await p.prompt("[ANON:OFF] mach was")
   const t = await p.prompt("[ANON:ON] stopp, wieder filtern")
-  check("ON-Marker wird entfernt", !t.includes("ANON"), JSON.stringify(t))
-  check("ON schaltet in derselben Session zu", isAnon(await p.after(PII)))
+  check("ON marker removed", !t.includes("ANON"), JSON.stringify(t))
+  check("ON switches in same session", isAnon(await p.after(PII)))
 }
 
 // 3) Sticky ueberlebt viele Tool-Aufrufe (kein Token-Budget mehr)
@@ -112,22 +112,22 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   await p.prompt("[ANON:OFF] lange Anfrage")
   let stillRaw = true
   for (let i = 0; i < 30; i++) if (!raw(await p.after(PII))) stillRaw = false
-  check("OFF haelt 30 Tool-Aufrufe durch", stillRaw, "kein Erlöschen nach 20")
+  check("OFF lasts 30 tool calls", stillRaw, "no expiry after 20")
 }
 
 // 4) FORCED bleibt anfragegebunden
 {
   const p = await fresh()
   await p.prompt("[ANON:FORCED] force-Anfrage")
-  check("FORCED filtert internen Pfad", isAnon(await p.after(PII, { file_path: TRUSTED_PATH })))
-  await p.prompt("naechste Anfrage ohne Marker")
+  check("FORCED filters internal path", isAnon(await p.after(PII, { file_path: TRUSTED_PATH })))
+  await p.prompt("naechste Anfrage without marker")
   const t2 = await p.after(PII, { file_path: TRUSTED_PATH })
-  check("FORCED endet mit der Anfrage", raw(t2), raw(t2) ? "intern wieder frei" : "bleibt gefiltert -> Ueberlauf")
+  check("FORCED ends with request", raw(t2), raw(t2) ? "intern wieder frei" : "bleibt gefiltert -> Ueberlauf")
 }
 {
   const p = await fresh()
   await p.prompt("[ANON:FORCE] ohne D")
-  check("FORCE ohne D wirkt", isAnon(await p.after(PII, { file_path: TRUSTED_PATH })))
+  check("FORCE without D works", isAnon(await p.after(PII, { file_path: TRUSTED_PATH })))
 }
 
 // 5) OFF schlaegt FORCED und umgekehrt nicht
@@ -135,7 +135,7 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   const p = await fresh()
   await p.prompt("[ANON:FORCED] force")
   await p.prompt("[ANON:OFF] aus")
-  check("OFF gewinnt, auch wenn vorher FORCED", raw(await p.after(PII, { file_path: TRUSTED_PATH })))
+  check("OFF wins even if FORCED before", raw(await p.after(PII, { file_path: TRUSTED_PATH })))
 }
 
 // 6) Neustart-Semantik: Plugin-Neustart = Filter wieder aktiv (fail-safe)
@@ -144,8 +144,8 @@ const isAnon = (s: string) => !s.includes("peter.parker@example.com") && s.inclu
   await p.prompt("[ANON:OFF] aus")
   check("OFF aktiv", raw(await p.after(PII)))
   const p2 = await fresh() // simuliert Plugin-Reload: frische Instanz
-  check("nach Plugin-Neustart wieder gefiltert (fail-safe)", isAnon(await p2.after(PII)))
+  check("filtered again after plugin restart (fail-safe)", isAnon(await p2.after(PII)))
 }
 
-console.log(failures === 0 ? "\n== MARKER-SEMANTIK BESTAETIGT ==" : `\n== ${failures} FEHLER ==`)
+console.log(failures === 0 ? "\n== MARKER SEMANTICS CONFIRMED ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)

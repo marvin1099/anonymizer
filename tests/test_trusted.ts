@@ -8,9 +8,9 @@
 //   * der Test bestand nur, solange die manuelle Config zufaellig passte,
 //   * zwei Tests gleichzeitig liefen sich gegenseitig ueber den Fuss.
 //
-// Jetzt: eigene Config-Datei in der Sandbox, per ANON_CONFIG gemeldet, bevor
+// Jetzt: eigene Config-File in der Sandbox, per ANON_CONFIG gemeldet, bevor
 // das Plugin das erste Mal geladen wird (TRUSTED_CONFIG wird beim Import der
-// Modul-Datei aus der Umgebung gelesen). Die echte Konfiguration wird nie
+// Modul-File aus der Umgebung gelesen). Die echte Konfiguration wird nie
 // geoeffnet, nie geschrieben, nie wiederhergestellt -- sie wird ignoriert.
 //
 // Aufruf: ./run.sh test_trusted.ts
@@ -74,7 +74,7 @@ async function fresh() {
   }
 }
 
-// Schreibt ausschliesslich in die EIGENE Datei (Legende -> Testfaelle).
+// Schreibt ausschliesslich in die EIGENE File (Legende -> Testfaelle).
 function setConfig(json: string): void {
   mkdirSync(dirname(OWN_CONFIG), { recursive: true })
   writeFileSync(OWN_CONFIG, json)
@@ -86,19 +86,19 @@ try {
   {
     const after = await fresh()
     const p = `${SANDBOX}/mein-projekt/notiz.txt`
-    check("Config-Pfad ist frei (read)", raw(await after({ file_path: p })),
+    check("Config path is free (read)", raw(await after({ file_path: p })),
       (await after({ file_path: p })).slice(0, 40))
-    check("anderer Pfad bleibt gefiltert", isAnon(await after({ file_path: OTHER })))
-    check("Shell bleibt immer gefiltert",
+    check("other path stays filtered", isAnon(await after({ file_path: OTHER })))
+    check("Shell always filtered",
       isAnon(await after({ command: `cat ${SANDBOX}/mein-projekt/notiz.txt` }, "shell")))
   }
 
   // 2) Hot-Reload: Pfad wird entfernt -> wieder filtern, ohne Neustart.
-  //    (trustedPaths() liest die Datei bei mtime-Aenderung neu.)
+  //    (trustedPaths() liest die File bei mtime-Aenderung neu.)
   setConfig(JSON.stringify({ trustedPaths: [] }))
   {
     const after = await fresh()
-    check("entfernter Pfad wird wieder gefiltert",
+    check("removed path filtered again",
       isAnon(await after({ file_path: `${SANDBOX}/mein-projekt/notiz.txt` })))
   }
 
@@ -106,8 +106,8 @@ try {
   setConfig("{ kaputt: ")
   {
     const after = await fresh()
-    check("kaputte Config -> interne Pfade weiter frei", raw(await after({ file_path: BUILTIN_RAW })))
-    check("kaputte Config -> externe Pfade gefiltert", isAnon(await after({ file_path: OTHER })))
+    check("broken config -> internal paths still free", raw(await after({ file_path: BUILTIN_RAW })))
+    check("broken config -> external paths filtered", isAnon(await after({ file_path: OTHER })))
   }
 
   // 4) ~/Praefix und Slash-Formen. "~" muss auf DIESEN Rechner expandieren,
@@ -117,13 +117,13 @@ try {
   }))
   {
     const after = await fresh()
-    check("~ wird expandiert",
+    check("~ expanded",
       raw(await after({ file_path: `${HOME_DIR}/.claude-trust-dir/a.md` })))
-    check("Slash-Form am Ende funktioniert",
+    check("trailing slash form works",
       raw(await after({ file_path: `${SANDBOX}/anders/a.md` })))
-    check("zweiter Pfad ohne Slash auch",
+    check("second path without slash too",
       raw(await after({ file_path: `${HOME_DIR}/Notes/privat/x.md` })))
-    check("Prefix-Kollision faellt nicht durch",
+    check("prefix collision not bypassed",
       isAnon(await after({ file_path: `${SANDBOX}/andersgelogen/x.md` })))
   }
 
@@ -134,11 +134,11 @@ try {
   {
     const after = await fresh()
     const denied = `${TRUSTED_DIR}/.local/share/anonymizer/state.json`
-    check("Sperrliste schlaegt Allowlist (gefiltert)", isAnon(await after({ file_path: denied })))
+    check("denylist beats allowlist (gefiltert)", isAnon(await after({ file_path: denied })))
   }
 } finally {
   cleanup()
 }
 
-console.log(failures === 0 ? "\n== TRUSTED-CONFIG BESTAETIGT ==" : `\n== ${failures} FEHLER ==`)
+console.log(failures === 0 ? "\n== TRUSTED CONFIG CONFIRMED ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)

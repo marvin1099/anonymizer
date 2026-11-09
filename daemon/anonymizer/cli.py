@@ -106,27 +106,27 @@ def _process(text: str, args) -> tuple[str, dict]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="anon", description="Lokaler PII-Anonymisierer (DE+EN), einweg.")
-    p.add_argument("--text", help="Text direkt uebergeben")
-    p.add_argument("--file", help="Datei anonymisieren")
-    p.add_argument("--dir", help="Verzeichnis rekursiv anonymisieren")
-    p.add_argument("--out", help="Ausgabedatei/-verzeichnis (sonst stdout)")
-    p.add_argument("--suffix", default=".anon", help="Suffix fuer --dir Ausgabedateien (default .anon)")
+    p = argparse.ArgumentParser(prog="anon", description="Local PII anonymizer (DE+EN), one-way.")
+    p.add_argument("--text", help="Text to anonymize")
+    p.add_argument("--file", help="Anonymize a file")
+    p.add_argument("--dir", help="Anonymize a directory recursively")
+    p.add_argument("--out", help="Output file/directory (default stdout)")
+    p.add_argument("--suffix", default=".anon", help="Suffix for --dir output files (default .anon)")
     p.add_argument("--lang", choices=["de", "en", "both"], default="both")
-    p.add_argument("--no-ner", action="store_true", help="nur deterministische Regeln")
-    p.add_argument("--threshold", type=float, default=0.30, help="NER-Schwelle (default 0.30)")
+    p.add_argument("--no-ner", action="store_true", help="deterministic rules only (no NER)")
+    p.add_argument("--threshold", type=float, default=0.30, help="NER threshold (default 0.30)")
     p.add_argument("--style", choices=["placeholder", "numbered"], default="numbered")
-    p.add_argument("--include", help="nur diese Labels (Komma)")
-    p.add_argument("--exclude", help="diese Labels auslassen (Komma)")
-    p.add_argument("--llm", action="store_true", help="zusaetzlicher LLM-Kontext-Pass (Ollama)")
-    p.add_argument("--task", help="Prompt, der nach der Anonymisierung auf den Text laeuft")
+    p.add_argument("--include", help="only these labels (comma)")
+    p.add_argument("--exclude", help="exclude these labels (comma)")
+    p.add_argument("--llm", action="store_true", help="extra LLM context pass (Ollama)")
+    p.add_argument("--task", help="prompt run on the text after anonymization")
     p.add_argument("--no-task-llm", action="store_true")
     p.add_argument("--model", default="qwen2.5:7b")
-    p.add_argument("--json", action="store_true", help="JSON-Report (stdout wird JSON nur mit --out Text)")
-    p.add_argument("--with-originals", action="store_true", help="Originalwerte im JSON behalten")
+    p.add_argument("--json", action="store_true", help="JSON report (stdout is JSON only with --out text)")
+    p.add_argument("--with-originals", action="store_true", help="keep original values in JSON")
     p.add_argument("--quiet", action="store_true")
-    p.add_argument("--stdin", action="store_true", help="Read from stdin")
-    p.add_argument("--serve", action="store_true", help="Warm-Model-Daemon starten (Unix Socket)")
+    p.add_argument("--stdin", action="store_true", help="read from stdin")
+    p.add_argument("--serve", action="store_true", help="start the warm-model daemon (Unix socket)")
     args = p.parse_args(argv)
 
     if args.serve:
@@ -151,9 +151,9 @@ def main(argv: list[str] | None = None) -> int:
                 if args.json:
                     print(json.dumps({"file": str(f), "out": str(target), **report}, ensure_ascii=False))
                 elif not args.quiet:
-                    print(f"{f} -> {target}  ({report['total']} Ersetzungen)", file=sys.stderr)
+                    print(f"{f} -> {target}  ({report['total']} replacements)", file=sys.stderr)
         if not args.quiet:
-            print(f"{n} Datei(en) anonymisiert.", file=sys.stderr)
+            print(f"{n} file(s) anonymized.", file=sys.stderr)
         return 0
 
     text, src_name = _read_input(args)
@@ -164,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             print(json.dumps({"source": src_name, "out": args.out, **report}, ensure_ascii=False))
         elif not args.quiet:
-            print(f"{src_name} -> {args.out}  ({report['total']} Ersetzungen)", file=sys.stderr)
+            print(f"{src_name} -> {args.out}  ({report['total']} replacements)", file=sys.stderr)
     else:
         if args.json:
             print(json.dumps({"source": src_name, "text": out_text, **report}, ensure_ascii=False, indent=2))
@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             if not out_text.endswith("\n"):
                 sys.stdout.write("\n")
             if not args.quiet:
-                print(f"\n[{report['total']} Ersetzungen: {report['counts']}]", file=sys.stderr)
+                print(f"\n[{report['total']} replacements: {report['counts']}]", file=sys.stderr)
     return 0
 
 

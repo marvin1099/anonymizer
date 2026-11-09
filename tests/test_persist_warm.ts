@@ -53,22 +53,22 @@ const grab = (t: string, label: string) => {
 
 const r = await send({ text: `Kontakt ${NAME}, Datei ${PATH}`, opts: {} })
 if (!r?.text) {
-  console.log("FAIL  Daemon antwortet nicht (Socket " + SOCK + ")")
+  console.log("FAIL  daemon responds nicht (Socket " + SOCK + ")")
   process.exit(1)
 }
 const tag = grab(r.text, "PERSON_")
 const pathTag = grab(r.text, "URL_")
-check("Name wurde als PERSON erkannt", !!tag, r.text)
-check("Pfad wurde als URL erkannt", !!pathTag, r.text)
+check("Name recognized as PERSON", !!tag, r.text)
+check("Path recognized as URL", !!pathTag, r.text)
 const rev = await send({ resolve: [tag ?? "", pathTag ?? ""] })
-check("Name ist rueckwaerts aufloesbar", rev?.map?.[tag ?? ""] === NAME, JSON.stringify(rev?.map))
-// Der URL-Span umfasst das fuehrende Wort mit ("Datei /pfad") -- daher contains.
-check("Pfad ist rueckwaerts aufloesbar", (rev?.map?.[pathTag ?? ""] ?? "").includes(PATH), (pathTag ?? "") + " -> " + rev?.map?.[pathTag ?? ""])
+check("Name reverse-resolvable", rev?.map?.[tag ?? ""] === NAME, JSON.stringify(rev?.map))
+// Der URL-Span umfasst das fuehrende Wort mit ("File /pfad") -- daher contains.
+check("Path reverse-resolvable", (rev?.map?.[pathTag ?? ""] ?? "").includes(PATH), (pathTag ?? "") + " -> " + rev?.map?.[pathTag ?? ""])
 
 if ((process.argv[2] ?? "a") === "a") {
   console.log("TAG=" + (tag ?? ""))
 } else {
   console.log("erwartet TAG=" + (tag ?? ""))
 }
-console.log(failures === 0 ? "\n== PHASE OK ==" : `\n== ${failures} FEHLER ==`)
+console.log(failures === 0 ? "\n== PHASE OK ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)

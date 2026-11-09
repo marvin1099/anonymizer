@@ -1,8 +1,8 @@
 import { SOCK, SANDBOX } from "./helpers"
 // Beweis: Numbering + Reverse-Mapping ueberleben einen Daemon-Neustart.
-// WICHTIG: Alle Platzhalter-Literale in dieser Datei sind als [[PERSON_x]]
+// WICHTIG: Alle Platzhalter-Literale in dieser File sind als [[PERSON_x]]
 // geschrieben -- der Plugin-Write-Path loest "[PERSON_1]" NICHT auf, es
-// schreibt literal "Anna Müller" auf die Platte. Sonst wuerde diese Datei
+// schreibt literal "Anna Müller" auf die Platte. Sonst wuerde diese File
 // beim Speichern ihre eigenen Marker durch echte Namen ersetzen.
 import { connect } from "node:net"
 import { writeFileSync, readFileSync, existsSync } from "node:fs"
@@ -43,7 +43,7 @@ const STATE_FILE = `${SANDBOX}/share/persist_a.json`
 
 async function discoverTags(): Promise<{ anna: string; peter: string; path: string }> {
   const r = await send({
-    text: "Anna Müller und Peter Schmidt sind die Kontakte. Datei: ${HOME_DIR}/x.json",
+    text: "Anna Müller und Peter Schmidt sind die Contacte. File: ${HOME_DIR}/x.json",
     opts: {},
   })
   const pathTag = r.text.match(/\[URL_\d+\]/)?.[0] ?? ""
@@ -60,16 +60,16 @@ async function discoverTags(): Promise<{ anna: string; peter: string; path: stri
 
 if (phase === "a") {
   const r = await send({
-    text: "Anna Müller und Peter Schmidt sind die Kontakte. Datei: ${HOME_DIR}/x.json",
+    text: "Anna Müller und Peter Schmidt sind die Contacte. File: ${HOME_DIR}/x.json",
     opts: {},
   })
   console.log("Phase A:", r.text)
   const { anna, peter, path } = await discoverTags()
-  check("A: zwei Personen distinct", !!anna && !!peter && anna !== peter, r.text)
+  check("A: two distinct persons", !!anna && !!peter && anna !== peter, r.text)
   const rev = await send({ resolve: [anna, peter, path ?? ""] })
-  check("A: Anna aufloesbar", rev?.map?.[anna] === "Anna Müller", JSON.stringify(rev?.map))
-  check("A: Peter aufloesbar", rev?.map?.[peter] === "Peter Schmidt", JSON.stringify(rev?.map))
-  check("A: Pfad ist Platzhalter und aufloesbar", !!path && rev?.map?.[path ?? ""] === "${HOME_DIR}/x.json", `${path} -> ${rev?.map?.[path ?? ""]}`)
+  check("A: Anna resolvable", rev?.map?.[anna] === "Anna Müller", JSON.stringify(rev?.map))
+  check("A: Peter resolvable", rev?.map?.[peter] === "Peter Schmidt", JSON.stringify(rev?.map))
+  check("A: Path is placeholder and resolvable", !!path && rev?.map?.[path ?? ""] === "${HOME_DIR}/x.json", `${path} -> ${rev?.map?.[path ?? ""]}`)
   try { writeFileSync(STATE_FILE, JSON.stringify({ anna, peter, path })) } catch {}
 } else {
   // Phase B: NUR Peter Schmidt + neuer Pfad. Erwartet: Peter Schmidt (NICHT
@@ -87,20 +87,20 @@ if (phase === "a") {
     anna = d.anna
     peter = d.peter
   }
-  const r = await send({ text: "Kontakt Peter Schmidt, Datei ${HOME_DIR}/y.json", opts: {} })
+  const r = await send({ text: "Contact Peter Schmidt, File ${HOME_DIR}/y.json", opts: {} })
   console.log("Phase B:", r.text)
-  check("B: Peter Schmidt behaelt seine Nummer", !!peter && r.text.includes(peter) && !r.text.includes(anna), r.text)
+  check("B: Peter Schmidt keeps his number", !!peter && r.text.includes(peter) && !r.text.includes(anna), r.text)
 
   const pathTag = r.text.match(/\[URL_\d+\]/)?.[0]
   const rev = await send({ resolve: [peter, pathTag ?? "", anna] })
-  check("B: Reverse-Mapping nach Neustart", rev?.map?.[peter] === "Peter Schmidt", JSON.stringify(rev?.map))
-  check("B: auch Anna Müller noch aufloesbar", rev?.map?.[anna] === "Anna Müller", JSON.stringify(rev?.map))
-  check("B: Pfad laesst sich zurueckuebersetzen", rev?.map?.[pathTag ?? ""] === "${HOME_DIR}/y.json", `${pathTag} -> ${rev?.map?.[pathTag ?? ""]}`)
+  check("B: Reverse mapping after restart", rev?.map?.[peter] === "Peter Schmidt", JSON.stringify(rev?.map))
+  check("B: Anna Müller still resolvable", rev?.map?.[anna] === "Anna Müller", JSON.stringify(rev?.map))
+  check("B: Path can be translated back", rev?.map?.[pathTag ?? ""] === "${HOME_DIR}/y.json", `${pathTag} -> ${rev?.map?.[pathTag ?? ""]}`)
 
   // Platzhalter duerfen NICHT erneut anonymisiert werden (sonst Muell-Mapping).
   const again = await send({ text: r.text, opts: {} })
-  check("B: Platzhalter bleiben unveraendert", again.text === r.text, `${r.text}  ->  ${again.text}`)
+  check("B: Placeholders stay unchanged", again.text === r.text, `${r.text}  ->  ${again.text}`)
 }
 
-console.log(failures === 0 ? "\n== PHASE OK ==" : `\n== ${failures} FEHLER ==`)
+console.log(failures === 0 ? "\n== PHASE OK ==" : `\n== ${failures} FAILURES ==`)
 process.exit(failures === 0 ? 0 : 1)
