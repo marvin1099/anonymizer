@@ -1,4 +1,4 @@
-import { SOCK } from "./helpers"
+import { SOCK, HOME_DIR } from "./helpers"
 // Verify that numbering and reverse mapping survive a daemon restart without
 // clearing state. A unique name keeps the placeholder unambiguous.
 // Run with: bun test_persist_warm.ts a, restart the daemon, then use phase b.
@@ -7,7 +7,7 @@ import { connect } from "node:net"
 const S = String.fromCharCode(91)
 const C = String.fromCharCode(93)
 const NAME = "Wilhelmine Faydrbush"
-const PATH = "/home/example-user/warm.json"
+const PATH = `${HOME_DIR}/warm.json`
 
 function send(payload: unknown): Promise<any | null> {
   return new Promise((resolve) => {
@@ -50,7 +50,7 @@ const grab = (t: string, label: string) => {
   return t.slice(open, k) + C
 }
 
-const r = await send({ text: `Contact ${NAME}, file ${PATH}`, opts: {} })
+const r = await send({ text: `Kontakt ${NAME}, Datei ${PATH}`, opts: {} })
 if (!r?.text) {
   console.log("FAIL  daemon did not respond (socket " + SOCK + ")")
   process.exit(1)
